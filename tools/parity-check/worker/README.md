@@ -28,7 +28,7 @@ For a different site, change `ORG` and `REPO` at the top of the file (or add `SI
 Add `service=<Worker address>` to the Parity Check row in the site's **library** sheet (`https://da.live/config#/shivanim123/visual-check/`), for example:
 
 ```
-/tools/parity-check/parity-check.html?service=https://parity-check.<your-subdomain>.workers.dev&original=https://www.example.com
+/tools/parity-check/parity-check.html?service=https://parity-check.<your-subdomain>.workers.dev
 ```
 
 Reload Experience Workspace. An author can also enter the address in the panel's **Settings** and click **Test**.

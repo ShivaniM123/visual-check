@@ -78,11 +78,13 @@ const PIN_CSS = `
   .dim { opacity: .35; }
 `;
 
-/** The original as a screenshot from Cloudflare Browser Run. */
-function imagePane(el, { shot, width, scale }) {
+/** A page as a screenshot from Cloudflare Browser Run (the original, and this page when public). */
+function imagePane(el, {
+  shot, width, scale, label,
+}) {
   el.innerHTML = `<div class="pcv-scroll" style="height:${Math.round(VIEW_H * scale)}px">
     <div class="pcv-canvas" style="width:${Math.round(width * scale)}px;height:${Math.round(shot.height * scale)}px">
-      <img alt="The original page at ${width}px" src="${shot.src}" style="width:${Math.round(width * scale)}px">
+      <img alt="${label} at ${width}px" src="${shot.src}" style="width:${Math.round(width * scale)}px">
       <div class="pcv-pins"></div></div></div>`;
   const scroller = el.querySelector('.pcv-scroll');
   const layer = el.querySelector('.pcv-pins');
@@ -91,6 +93,7 @@ function imagePane(el, { shot, width, scale }) {
       layer.replaceChildren(pinNodes(document, pins, scale, activeId, onPin));
     },
     scrollTo(y, smooth) { scroller.scrollTo({ top: Math.max(0, y * scale - 40), behavior: smooth ? 'smooth' : 'auto' }); },
+    setTop(y) { scroller.scrollTop = Math.max(0, y * scale); },
     onScroll(cb) { scroller.addEventListener('scroll', () => cb(scroller.scrollTop / scale)); },
     destroy() {},
   };
@@ -122,6 +125,7 @@ async function framePane(el, { url, width, scale }) {
       layer.replaceChildren(pinNodes(doc, pins, 1, activeId, onPin, scale));
     },
     scrollTo(y, smooth) { win.scrollTo({ top: Math.max(0, y - 40 / scale), behavior: smooth ? 'smooth' : 'auto' }); },
+    setTop(y) { win.scrollTo(0, Math.max(0, y)); },
     onScroll(cb) { win.addEventListener('scroll', () => cb(win.scrollY)); },
     destroy() { iframe.remove(); },
   };
@@ -138,11 +142,13 @@ function layout(container, width, maxPaneHeight = MAX_PANE_H) {
 
 /**
  * Draws both panes for one width result. Returns a controller to update pins and focus issues.
- * `original` is { shot } (Cloudflare Browser Run) or { url } (same-site original, e.g. the demo).
+ * `original` and `migrated` are { shot } (Cloudflare Browser Run) or { url } (a page of this
+ * site rendered live, e.g. the demo or a page read in the panel).
  */
 export async function renderVisual(container, {
-  result, original, migratedUrl, onPin, maxPaneHeight,
+  result, original, migrated, migratedUrl, onPin, maxPaneHeight,
 }) {
+  const mine = migrated || { url: migratedUrl };
   const { width, anchors } = result;
   const { sideBySide, scale } = layout(container, width, maxPaneHeight);
   container.innerHTML = `<div class="pcv ${sideBySide ? 'side' : 'stack'}">
@@ -151,19 +157,21 @@ export async function renderVisual(container, {
   </div>`;
   const oEl = container.querySelector('[data-side="o"]');
   const mEl = container.querySelector('[data-side="m"]');
-  const [o, m] = await Promise.all([
-    original.shot
-      ? imagePane(oEl, { shot: original.shot, width, scale })
-      : framePane(oEl, { url: original.url, width, scale }),
-    framePane(mEl, { url: migratedUrl, width, scale }),
-  ]);
+  const pane = (el, src, label) => (src.shot
+    ? imagePane(el, {
+      shot: src.shot, width, scale, label,
+    })
+    : framePane(el, { url: src.url, width, scale }));
+  const [o, m] = await Promise.all([pane(oEl, original, 'The original page'), pane(mEl, mine, 'This page')]);
 
-  // scroll together, through the matched content
+  // scroll together section by section, as in the PR: the content in the middle of one pane is
+  // brought to the middle of the other, even when the sections above it differ in height
   let lock = null;
+  const half = VIEW_H / 2;
   const follow = (from, to, dir) => from.onScroll((y) => {
     if (lock === to) return;
     lock = from;
-    to.scrollTo(mapY(anchors, y, dir), false);
+    to.setTop(mapY(anchors, y + half, dir) - half);
     clearTimeout(follow.t);
     follow.t = setTimeout(() => { lock = null; }, 120);
   });

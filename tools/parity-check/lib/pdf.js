@@ -4,6 +4,7 @@
  * check's results and the original's screenshots, then downloaded.
  */
 import { issueKey } from './report.js';
+import { groupBySection } from './sections.js';
 
 /* ---------- a minimal PDF writer ---------- */
 
@@ -271,7 +272,7 @@ export async function pdfReport(report, statuses = {}) {
     }
     if (!r.issues.length) para('No visual differences at this width.', { size: 11 });
     // eslint-disable-next-line no-loop-func
-    r.issues.forEach((i) => {
+    const issueBlock = (i) => {
       const [label, color] = SEV[i.severity] || SEV.low;
       const st = STATUS[statuses[issueKey(i)]] || 'Open';
       const rect = i.oRects?.[0] || i.o?.rect;
@@ -302,6 +303,17 @@ export async function pdfReport(report, statuses = {}) {
       y += boxH;
       doc.line(M, y + 4, M + W, y + 4);
       y += 10;
+    };
+    const groups = groupBySection(r.issues, r.sections);
+    // eslint-disable-next-line no-loop-func
+    groups.forEach((g) => {
+      ensure(40);
+      y += 4;
+      doc.rect(M, y, W, 20, { fill: '#eef2ff' });
+      doc.text(g.label, M + 8, y + 14, { size: 10.5, bold: true, color: '#1d3ecf' });
+      doc.text(`${g.issues.length} issue${g.issues.length === 1 ? '' : 's'}`, M + W - 60, y + 14, { size: 9, color: '#1d3ecf' });
+      y += 28;
+      g.issues.forEach((i) => issueBlock(i));
     });
   }
   return doc.toBlob();

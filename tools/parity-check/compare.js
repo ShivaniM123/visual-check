@@ -6,6 +6,7 @@
 import { renderVisual } from './lib/visual.js';
 import { issueKey } from './lib/report.js';
 import { pdfReport } from './lib/pdf.js';
+import { groupBySection } from './lib/sections.js';
 
 const app = document.getElementById('app');
 const SEV_LABEL = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -23,19 +24,22 @@ const scoreClass = (s) => {
   return s >= 65 ? 'fair' : 'poor';
 };
 const result = () => state.report.results.find((r) => r.width === state.width) || state.report.results[0];
-const visibleIssues = () => result().issues.filter((i) => !state.sev || i.severity === state.sev);
+const visibleIssues = () => groupBySection(result().issues.filter((i) => !state.sev || i.severity === state.sev), result().sections).flatMap((g) => g.issues);
 
 function listHtml() {
   const items = visibleIssues();
   if (!result().issues.length) return '<p class="pc-empty">No visual differences at this width.</p>';
-  return `<ol class="pc-issues">${items.map((i) => {
+  const one = (i) => {
     const st = STATUS[state.statuses[issueKey(i)]];
     const value = i.ov !== undefined || i.mv !== undefined ? `<span class="pc-issue-detail">Original <b>${esc(i.ov ?? '–')}</b> · this page <b>${esc(i.mv ?? '–')}</b></span>` : '';
     return `<li class="pc-issue ${i.severity}${i.id === state.activeId ? ' active' : ''}${st === 'Approved' ? ' approved' : ''}" data-id="${esc(i.id)}">
       <button type="button" class="pc-issue-head"><span class="pc-sev ${i.severity}">${i.n}</span>
       <span><span class="pc-issue-title">${esc(i.title)}</span>${i.detail ? `<span class="pc-issue-detail">${esc(i.detail)}</span>` : ''}${value}
       <span class="pc-meta"><span class="pc-tag">${esc(i.category)}</span>${i.m?.block ? `<span class="pc-tag">Block: ${esc(i.m.block)}</span>` : ''}${st ? `<span class="pc-tag ${st === 'Approved' ? 'ok' : 'fix'}">${st}</span>` : ''}</span></span></button></li>`;
-  }).join('')}</ol>`;
+  };
+  return `<ol class="pc-issues pc-sections">${groupBySection(items, result().sections).map((g) => `<li class="pc-section">
+    <p class="pc-section-head"><span>${esc(g.label)}</span><span class="pc-section-count">${g.issues.length}</span></p>
+    <ol class="pc-issues">${g.issues.map(one).join('')}</ol></li>`).join('')}</ol>`;
 }
 
 function render() {
@@ -71,7 +75,7 @@ async function drawVisual() {
     const v = await renderVisual(box, {
       result: r,
       original: r.shot ? { shot: r.shot } : { url: state.report.original },
-      migratedUrl: state.migratedUrl,
+      migrated: r.mshot ? { shot: r.mshot } : { url: state.migratedUrl },
       onPin: (id) => setActive(id, true),
       maxPaneHeight: Math.max(600, window.innerHeight - 150),
     });

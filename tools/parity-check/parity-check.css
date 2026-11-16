@@ -472,3 +472,29 @@ kbd {
 }
 .pcx-visual .pcv.side { grid-template-columns: auto auto; justify-content: center; gap: 28px; }
 .pcx-visual .pcv.stack { justify-items: center; }
+
+/* issues grouped by page section */
+.pc-sections { gap: 10px; }
+.pc-section { list-style: none; display: grid; gap: 6px; }
+
+.pc-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #1d3ecf;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.pc-section-count {
+  background: #fff;
+  border-radius: 9px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+.pc-notice-info { background: #eef8f4; border-color: #b6e2d2; }

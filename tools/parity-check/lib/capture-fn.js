@@ -50,6 +50,18 @@ export function pickWidths(conditions) {
 
 const wait = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
+/**
+ * No scrollbar, as in the PR's browser (--hide-scrollbars): the page is laid out at the full
+ * viewport width, so a 900px check really is 900px wide for the page's media queries.
+ */
+function hideScrollbars() {
+  if (document.getElementById('__pc-noscroll')) return;
+  const style = document.createElement('style');
+  style.id = '__pc-noscroll';
+  style.textContent = 'html { scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }';
+  (document.head || document.documentElement).append(style);
+}
+
 /** Waits for the page to load and for Edge Delivery's delayed phase (~3 s after load). */
 async function settled() {
   for (let i = 0; i < 60 && (document.readyState !== 'complete' || performance.now() < 4500); i += 1) {
@@ -60,6 +72,7 @@ async function settled() {
 
 /** The page's media queries, including cross-origin stylesheets (read as text). */
 export async function captureMedia() {
+  hideScrollbars();
   await settled();
   const media = collectMediaFromCssom();
   await Promise.all([...new Set(media.unreadable || [])].slice(0, 10).map(async (href) => {
@@ -74,6 +87,7 @@ export async function captureMedia() {
 /** Reads the page at the current viewport width. */
 export default async function capturePage(opts) {
   const A = { hideSelectors: [], maxHeight: 10000, ...opts };
+  hideScrollbars();
   await settled();
   if (!document.getElementById('__pc-freeze')) {
     const style = document.createElement('style');

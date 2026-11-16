@@ -99,6 +99,10 @@ export async function openFrame(url, {
 export async function readFrame(iframe, { hideSelectors = [], maxHeight = 12000 } = {}) {
   const win = iframe.contentWindow;
   const doc = win.document;
+  // no scrollbar, as in the PR's browser: the page is laid out at the full width
+  const noScroll = doc.createElement('style');
+  noScroll.textContent = 'html { scrollbar-width: none !important; } ::-webkit-scrollbar { display: none !important; }';
+  (doc.head || doc.documentElement).append(noScroll);
   await waitUntil(() => doc.readyState === 'complete' && win.performance.now() > 4500, 9000);
   await waitUntil(() => ![...doc.querySelectorAll('main .section')]
     .some((s) => s.dataset.sectionStatus && s.dataset.sectionStatus !== 'loaded'), 6000);

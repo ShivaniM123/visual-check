@@ -12,12 +12,13 @@ import { runCheck } from './lib/compare.js';
 import { checkService } from './lib/cloud.js';
 import { captureKey, getCapture } from './lib/store.js';
 import {
-  getSettings, saveSettings, presetMapping, guessOriginal, pageOriginal, rememberOriginal,
+  getSettings, saveSettings,
   getStatuses, saveStatuses, DEFAULT_HIDE,
 } from './lib/settings.js';
 import { issueKey } from './lib/report.js';
 import { pdfReport } from './lib/pdf.js';
 import { renderVisual } from './lib/visual.js';
+import { groupBySection } from './lib/sections.js';
 
 const SDK_TIMEOUT = 6000;
 const MAX_WIDTHS = 5;
@@ -124,6 +125,18 @@ function sameSitePanel() {
 }
 
 /**
+ * This page's public preview, for the cloud capture: both pages are then read in the same browser
+ * with the same settings and compared pixel by pixel, as the PR does. Pages Cloudflare can't reach
+ * (the local preview) are read in the panel instead.
+ */
+function migratedCloudUrl() {
+  if (!serviceUrl()) return null;
+  if (state.mode === 'demo' && !new URLSearchParams(window.location.search).has('cloud')) return null;
+  const url = migratedUrl();
+  return /^https:\/\//.test(url) && !/(^|\.)(localhost|127\.0\.0\.1)$/.test(new URL(url).hostname) ? url : null;
+}
+
+/**
  * The code branch the panel itself is served from (e.g. parity-extension--visual-check--org.*):
  * the capture Worker must run that branch's capture code, whatever branch the content is on.
  */
@@ -153,8 +166,10 @@ const statusOf = (i) => state.statuses[issueKey(i)] || null;
 function visibleIssues() {
   const r = result();
   if (!r) return [];
-  return r.issues.filter((i) => (!state.sev || i.severity === state.sev)
+  const items = r.issues.filter((i) => (!state.sev || i.severity === state.sev)
     && (!state.hideApproved || statusOf(i) !== 'ok'));
+  // in the order they're shown: section by section, down the page
+  return groupBySection(items, r.sections).flatMap((g) => g.issues);
 }
 
 /* ---------- running ---------- */
@@ -186,7 +201,6 @@ async function check({ refreshOriginal = false } = {}) {
     return;
   }
   state.original = original;
-  if (state.mode !== 'demo') rememberOriginal(siteId(), state.ctx.path, original);
   state.busy = true;
   state.error = null;
   state.step = 'Starting';
@@ -196,6 +210,7 @@ async function check({ refreshOriginal = false } = {}) {
       original,
       migrated: migratedUrl(),
       renderUrl: renderUrl(),
+      migratedCloudUrl: migratedCloudUrl(),
       widths: state.settings.widths,
       hideSelectors: state.settings.hideSelectors,
       service: serviceUrl(),
@@ -297,7 +312,10 @@ function errorHtml() {
 function noticesHtml() {
   const { report } = state;
   const out = [];
-  if (state.changed) out.push('<p class="pc-notice">The page changed since the last check. <button type="button" class="pc-link" data-act="check">Check again</button></p>');
+  const cloud = report.migratedSource === 'cloud';
+  if (state.changed) out.push(`<p class="pc-notice">The page changed since the last check.${cloud ? ' Preview it, then' : ''} <button type="button" class="pc-link" data-act="check">Check again</button></p>`);
+  if (cloud) out.push('<p class="pc-notice pc-notice-info">Both pages were opened in the same cloud browser and compared pixel by pixel. This page is checked as last previewed.</p>');
+  else if (state.mode !== 'demo') out.push('<p class="pc-notice">This page was read in the panel, without a pixel comparison, so results are less exact. Add the capture Worker in Settings to compare both pages in the cloud.</p>');
   if (report.breakpoints.length) {
     const mm = report.breakpointMismatch;
     const miss = mm.missingInMigrated.length ? ` The migrated CSS has no media query at ${mm.missingInMigrated.join(', ')}px.` : '';
@@ -389,8 +407,12 @@ function issuesHtml() {
   let list;
   if (!r.issues.length) list = '<li class="pc-empty">No visual differences at this width.</li>';
   else if (!items.length) list = '<li class="pc-empty">No issues match the filter.</li>';
-  else list = items.map(issueHtml).join('');
-  return `<ol class="pc-issues">${list}</ol>`;
+  else {
+    list = groupBySection(items, r.sections).map((g) => `<li class="pc-section" aria-label="${esc(g.label)}">
+      <p class="pc-section-head"><span>${esc(g.label)}</span><span class="pc-section-count">${g.issues.length}</span></p>
+      <ol class="pc-issues">${g.issues.map(issueHtml).join('')}</ol></li>`).join('');
+  }
+  return `<ol class="pc-issues pc-sections">${list}</ol>`;
 }
 
 function resultsHtml() {
@@ -413,18 +435,12 @@ function resultsHtml() {
 
 function settingsHtml() {
   const s = state.settings;
-  const m = s.mapping || {};
   return `<section class="pc-card pc-settings" aria-label="Settings">
     <h2>Settings</h2>
     <label class="pc-label" for="pc-service">Capture Worker address</label>
     <div class="pc-row-inline"><input id="pc-service" type="url" autocomplete="off" spellcheck="false" value="${esc(s.service)}" placeholder="${esc(new URLSearchParams(window.location.search).get('service') || 'https://parity-check.<account>.workers.dev')}">
     <button type="button" class="pc-btn small" data-act="test-service">Test</button></div>
     <p class="pc-hint" id="pc-service-status">The free Cloudflare Worker that opens originals in Cloudflare's cloud browser for this site. Leave empty to use the one in the library row.</p>
-    <label class="pc-label" for="pc-origin">Original site</label>
-    <input id="pc-origin" type="url" spellcheck="false" value="${esc(m.origin || '')}" placeholder="https://www.example.com">
-    <div class="pc-row"><div><label class="pc-label" for="pc-prefix">Path prefix</label><input id="pc-prefix" type="text" value="${esc(m.prefix || '')}" placeholder="/en"></div>
-    <div><label class="pc-label" for="pc-suffix">Suffix</label><input id="pc-suffix" type="text" value="${esc(m.suffix || '')}" placeholder=".html"></div></div>
-    <p class="pc-hint">Used to fill in the original of every page on ${esc(state.ctx.repo)}. Learned from the first page you check.</p>
     <label class="pc-label" for="pc-hide">Ignore elements</label>
     <textarea id="pc-hide" rows="5" spellcheck="false">${esc(s.hideSelectors.join('\n'))}</textarea>
     <p class="pc-hint">CSS selectors hidden on both pages before comparing: cookie banners, chat widgets, ads.</p>
@@ -461,7 +477,7 @@ async function drawVisual() {
     const v = await renderVisual(box, {
       result: r,
       original,
-      migratedUrl: renderUrl(),
+      migrated: r.mshot ? { shot: r.mshot } : { url: renderUrl() },
       onPin: (id) => setActive(id, { fromPin: true }),
     });
     if (document.getElementById('pc-visual') !== box) { v.destroy(); return; }
@@ -666,24 +682,15 @@ function saveWidths(widths) {
 
 function saveSettingsForm() {
   const v = (id) => app.querySelector(id)?.value.trim() || '';
-  let mapping = null;
-  try {
-    if (v('#pc-origin')) mapping = { origin: new URL(v('#pc-origin')).origin, prefix: v('#pc-prefix'), suffix: v('#pc-suffix') };
-  } catch (e) {
-    toast('The original site must be a full address, like https://www.example.com');
-    return;
-  }
   const service = v('#pc-service').replace(/\/+$/, '');
   if (service && !/^https:\/\//.test(service) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(service)) {
     toast('The capture Worker address must start with https://');
     return;
   }
   const hideSelectors = v('#pc-hide').split('\n').map((l) => l.trim()).filter(Boolean);
-  saveSettings(siteId(), { service, mapping, hideSelectors });
-  state.settings = {
-    ...state.settings, service, mapping, hideSelectors,
-  };
-  if (!state.report && mapping) state.original = guessOriginal(state.ctx.path, mapping);
+  readSetup();
+  saveSettings(siteId(), { service, hideSelectors });
+  state.settings = { ...state.settings, service, hideSelectors };
   state.view = 'main';
   toast('Settings saved.');
   refreshCached().then(render);
@@ -716,31 +723,22 @@ window.addEventListener('resize', () => {
 
 async function start(ctx) {
   state.ctx = ctx;
-  const params = new URLSearchParams(window.location.search);
   state.settings = state.mode === 'demo'
     ? {
-      service: getSettings('demo').service, hideSelectors: DEFAULT_HIDE, widths: [640, 1024], mapping: null,
+      service: getSettings('demo').service, hideSelectors: DEFAULT_HIDE, widths: [640, 1024],
     }
     : getSettings(siteId());
   if (state.mode === 'demo') {
     state.original = new URL('./demo/original.html', import.meta.url).href;
     state.originalHint = 'Demo: two sample pages with deliberate differences. Open the panel from Experience Workspace to check your own pages.';
   } else {
-    const preset = presetMapping(params);
-    if (preset && !state.settings.mapping) {
-      state.settings.mapping = preset;
-      saveSettings(siteId(), { mapping: preset });
-    }
-    const known = pageOriginal(siteId(), ctx.path);
-    state.original = known || guessOriginal(ctx.path, state.settings.mapping);
-    if (known) state.originalHint = 'The original you used for this page last time.';
-    else if (state.original) state.originalHint = 'Filled in from the site\'s original address. Change it if it\'s wrong.';
-    else state.originalHint = 'Enter the original of this page once. Other pages on this site are then filled in for you.';
+    // empty: the author enters the original each time
+    state.original = '';
+    state.originalHint = 'Enter the address of the original page this page was migrated from.';
   }
   await refreshCached();
+  // nothing runs until the author clicks "Check this page"
   render();
-  // the original was captured before: re-checking costs no capture, so run straight away
-  if (state.cached && state.original) check();
 }
 
 async function startEditor(sdk) {
