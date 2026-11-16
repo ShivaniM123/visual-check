@@ -19,8 +19,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 ## Features
 
 ### 1. Checks the page you're editing
-- The panel knows the open page from the editor. The **Original page** field starts empty: enter the address of the page this one was migrated from, then click **Check this page**. Nothing runs until you do.
-- **It checks the page URLs, as visitors get them**, never the Document Authoring source: this page's public URL (**Preview**, `…aem.page`, or **Live**, `…aem.live`, shown in the panel) against the original's URL. Editor addresses pasted as the original (`da.live/canvas#/…`, `da.live/edit#/…`) are turned into the page's public URL.
+- **Two boxes, two URLs.** The author enters the **Original page URL** and the **Migrated page URL** (its preview `…aem.page` or live `…aem.live` address). Both start empty, and nothing runs until **Check this page**. Pages are checked by their URLs, as visitors get them, never from the Document Authoring source; editor addresses pasted in either box (`da.live/canvas#/…`, `da.live/edit#/…`) are turned into the page's public URL.
 - When you edit the page after a check, the panel says "The page changed since the last check" with a **Check again** button.
 
 ### 2. The original's breakpoints
@@ -54,7 +53,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 | Page | How it's read |
 |---|---|
 | **The original** | The panel asks the site's **capture Worker**, which opens the original in **Cloudflare Browser Run** (one browser session for every width) and adds this site's capture script to it (`lib/extract.js` + `lib/capture-fn.js`, read from the site, never from the request). The page's security policy is switched off for that tab, so strict sites such as Edge Delivery pages can be read. At each width the script reads every element with the parity core, and the Worker takes a screenshot. About 10–20 s of browser time for a capture of 2–3 widths. |
-| **This page** | Opened the same way, by its public URL (`https://main--visual-check--shivanim123.aem.page/…` for Preview, `…aem.live/…` for Live), in the same cloud browser session with the same settings. |
+| **The migrated page** | Opened the same way, by the URL entered (for example `https://main--visual-check--shivanim123.aem.page/…`), in the same cloud browser session with the same settings. |
 
 Then, as in the PR's `run.js`: `match.js` pairs the elements by content (section by section, so moved sections aren't reported as missing), `diff.js` compares the two screenshots pixel by pixel with **pixelmatch** (the PR's diff, run in the browser), and `rules.js` turns the differences into issues and a score. `extract.js`, `match.js`, `rules.js`, `words.js`, `prompt.js` and `breakpoints.js` are the PR's, unchanged; with both pages captured alike, the results are the PR's results. Scrollbars are hidden during capture, as in the PR's browser, so each width is the page's real layout width.
 

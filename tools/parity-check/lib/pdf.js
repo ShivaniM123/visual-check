@@ -255,6 +255,7 @@ export async function pdfReport(report, statuses = {}) {
     y += 16;
   });
   y += 8;
+  (report.warnings || []).forEach((w) => para(`${w.page === 'original' ? 'The original page' : 'This page'} loads without its styles at ${w.url}: no stylesheets, web fonts or site scripts loaded, so most differences come from that.`, { color: '#b3262e', bold: true }));
   const mm = report.breakpointMismatch;
   if (mm?.missingInMigrated?.length) para(`The migrated CSS has no media query at ${mm.missingInMigrated.join(', ')}px.`, { color: '#8a5300' });
 

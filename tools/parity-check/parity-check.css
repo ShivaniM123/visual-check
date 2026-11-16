@@ -499,19 +499,4 @@ kbd {
 
 .pc-notice-info { background: #eef8f4; border-color: #b6e2d2; }
 
-/* the page that is checked: its public URL */
-.pc-page-url { display: grid; gap: 4px; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--pc-line); }
-.pc-url { font-size: 12px; overflow-wrap: anywhere; color: var(--pc-text); font-weight: 600; }
-.pc-env { display: inline-flex; border: 1px solid #c8c8c8; border-radius: 12px; overflow: hidden; }
-
-.pc-env button {
-  border: 0;
-  background: var(--pc-card);
-  padding: 2px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--pc-muted);
-}
-
-.pc-env button[aria-pressed="true"] { background: var(--pc-accent); color: #fff; }
+.pc-notice-warn { background: #fff1f1; border-color: #f1b8bb; color: #8f1d24; }

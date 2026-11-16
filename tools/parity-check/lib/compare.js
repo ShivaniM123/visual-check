@@ -175,6 +175,18 @@ export async function runCheck({
     results: [],
   };
   report.breakpoints = breakpointsOf(orig.media?.conditions).suggested;
+  // a page that loads without its styles (its CSS and scripts missing at that address) makes
+  // every element look different: say so, rather than only listing the differences
+  const unstyled = (cap, url) => {
+    const d = cap.widths[0]?.data;
+    if (!d) return false;
+    const sheets = cap.media?.sheetCount ?? 99;
+    const eds = /--[a-z0-9-]+--[a-z0-9-]+\.(aem|hlx)\.(page|live)$/i.test(new URL(url).hostname);
+    return (sheets <= 1 && !(cap.media?.conditions || []).length && !(d.fonts || []).length) || (eds && !d.isEds);
+  };
+  report.warnings = [];
+  if (unstyled(orig, original)) report.warnings.push({ page: 'original', url: original });
+  if (unstyled(mig, migratedCloudUrl || renderUrl)) report.warnings.push({ page: 'migrated', url: migratedCloudUrl || renderUrl });
 
   // eslint-disable-next-line no-restricted-syntax
   for (const ow of orig.widths) {

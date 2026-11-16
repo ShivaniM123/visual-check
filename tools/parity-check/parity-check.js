@@ -42,7 +42,8 @@ const state = {
   ctx: null, // { org, repo, branch, path }
   settings: null,
   original: '',
-  originalHint: '',
+  migrated: '',
+  migratedChecked: '',
   report: null,
   statuses: {},
   width: null,
@@ -99,15 +100,16 @@ function toast(message) {
 
 const siteId = () => `${state.ctx.org}/${state.ctx.repo}`;
 
-/** The page's public address (shown, and given to AEM Coder). */
-/**
- * The page being checked: its public URL, on the preview (aem.page) or the live site (aem.live),
- * exactly as visitors get it. Never the Document Authoring source.
- */
-function migratedUrl() {
+/** An example of this page's public URL, shown as a hint in the empty "Migrated page" box. */
+function examplePageUrl() {
   if (state.mode === 'demo') return new URL('./demo/migrated.html', import.meta.url).href;
   const { org, repo, branch, path } = state.ctx;
-  return `https://${branch}--${repo}--${org}.aem.${state.env === 'live' ? 'live' : 'page'}${path}`;
+  return `https://${branch}--${repo}--${org}.aem.page${path}`;
+}
+
+/** The migrated page that is checked: the URL the author entered, as visitors get it. */
+function migratedUrl() {
+  return state.migratedChecked || state.migrated || '';
 }
 
 /** Only the demo renders its pages in the panel (they are on this site, not public). */
@@ -191,26 +193,31 @@ export function publicAddress(input) {
 
 async function check({ refreshOriginal = false } = {}) {
   if (state.busy) return;
-  let original;
-  try {
-    original = new URL(state.original.trim()).href;
-    if (!/^https?:$/.test(new URL(original).protocol)) throw new Error();
-  } catch (e) {
-    state.error = { title: 'Enter the original page', text: 'Enter its full address, starting with https://' };
+  const read = (value, field, label) => {
+    try {
+      const url = new URL(String(value || '').trim()).href;
+      if (!/^https?:$/.test(new URL(url).protocol)) throw new Error();
+      const fixed = publicAddress(url);
+      if (fixed !== url) toast(`That's an editor address: using the page itself, ${fixed}`);
+      return fixed;
+    } catch (e) {
+      state.error = { title: `Enter the ${label} URL`, text: 'Enter its full address, starting with https://' };
+      render();
+      app.querySelector(field)?.focus();
+      return null;
+    }
+  };
+  const original = read(state.original, '#pc-original', 'original page');
+  if (!original) return;
+  const migrated = read(state.migrated, '#pc-migrated', 'migrated page');
+  if (!migrated) return;
+  if (original.split('#')[0] === migrated.split('#')[0]) {
+    state.error = { title: 'The two URLs are the same', text: 'Enter the original page and the migrated page: two different URLs.' };
     render();
-    app.querySelector('#pc-original')?.focus();
     return;
   }
-  const fixed = publicAddress(original);
-  if (fixed !== original) {
-    toast(`That's an editor address: comparing with the page itself, ${fixed}`);
-    original = fixed;
-  }
-  if (original.split('#')[0] === migratedUrl().split('#')[0]) {
-    state.error = { title: 'That is this page', text: 'Enter the address of the original page this page was migrated from, not the page you are editing.' };
-    render();
-    return;
-  }
+  state.migrated = migrated;
+  state.migratedChecked = migrated;
   if (state.mode !== 'demo' && !serviceUrl()) {
     state.error = {
       title: 'The capture Worker isn\'t set up',
@@ -305,25 +312,14 @@ function breakpointsHtml() {
     </div>`;
 }
 
-function pageHtml() {
-  if (state.mode === 'demo') return '';
-  const dis = state.busy ? 'disabled' : '';
-  return `<div class="pc-page-url">
-      <div class="pc-bp-head"><span class="pc-label">This page</span>
-        <span class="pc-env" role="group" aria-label="Check the preview or the live page">
-          <button type="button" data-env="page" aria-pressed="${state.env !== 'live'}" ${dis}>Preview</button><button type="button" data-env="live" aria-pressed="${state.env === 'live'}" ${dis}>Live</button>
-        </span></div>
-      <a class="pc-url" href="${esc(migratedUrl())}" target="_blank" rel="noopener">${esc(migratedUrl())}</a>
-      <p class="pc-hint">${state.env === 'live' ? 'The published page, as visitors see it.' : 'The previewed page. Preview your edits before checking.'}</p>
-    </div>`;
-}
-
 function setupHtml() {
   return `<section class="pc-card pc-setup" aria-label="Compare with">
-    ${pageHtml()}
-    <label class="pc-label" for="pc-original">Original page</label>
+    <label class="pc-label" for="pc-original">Original page URL</label>
     <input id="pc-original" type="url" spellcheck="false" autocomplete="off" placeholder="https://www.example.com/the-same-page" value="${esc(state.original)}" ${state.busy ? 'disabled' : ''}>
-    <p class="pc-hint">${esc(state.originalHint)}</p>
+    <p class="pc-hint">The page on the original site.</p>
+    <label class="pc-label" for="pc-migrated">Migrated page URL</label>
+    <input id="pc-migrated" type="url" spellcheck="false" autocomplete="off" placeholder="${esc(examplePageUrl())}" value="${esc(state.migrated)}" ${state.busy ? 'disabled' : ''}>
+    <p class="pc-hint">The migrated page: its preview (…aem.page) or live (…aem.live) URL. Preview or publish your edits before checking.</p>
     ${breakpointsHtml()}
     <button type="button" class="pc-btn primary pc-run" data-act="check" ${state.busy ? 'disabled' : ''}>${state.report ? 'Check again' : 'Check this page'}</button>
     ${quotaLine()}
@@ -345,8 +341,12 @@ function errorHtml() {
 function noticesHtml() {
   const { report } = state;
   const out = [];
+  (report.warnings || []).forEach((w) => {
+    const which = w.page === 'original' ? 'The original page' : 'This page';
+    out.push(`<p class="pc-notice pc-notice-warn"><strong>${which} loads without its styles</strong> at <a href="${esc(w.url)}" target="_blank" rel="noopener">${esc(w.url)}</a>: no stylesheets, web fonts or site scripts loaded, so most of the differences below come from that. ${w.page === 'original' ? 'Check the original\'s address: it should be the page this one was migrated from, with its site code.' : 'Check that the site\'s code (head.html, scripts, styles) is on this branch.'}</p>`);
+  });
   const cloud = report.migratedSource === 'cloud';
-  if (state.changed) out.push(`<p class="pc-notice">The page changed since the last check. ${state.env === 'live' ? 'Publish' : 'Preview'} it, then <button type="button" class="pc-link" data-act="check">check again</button>.</p>`);
+  if (state.changed) out.push('<p class="pc-notice">The page changed since the last check. Preview or publish it, then <button type="button" class="pc-link" data-act="check">check again</button>.</p>');
   if (cloud) out.push(`<p class="pc-notice pc-notice-info">Both pages were opened by their URLs in the same cloud browser and compared pixel by pixel: ${esc(report.migratedCaptured || report.migrated)}</p>`);
   if (report.breakpoints.length) {
     const mm = report.breakpointMismatch;
@@ -648,14 +648,6 @@ app.addEventListener('click', async (e) => {
   if (act === 'save-settings') { saveSettingsForm(); return; }
   if (act === 'test-service') { testService(); return; }
   if (act === 'pdf') { downloadPdf(t.closest('[data-act]')); return; }
-  const env = t.closest('[data-env]');
-  if (env) {
-    readSetup();
-    state.env = env.dataset.env;
-    if (state.mode !== 'demo') saveSettings(siteId(), { env: state.env });
-    render();
-    return;
-  }
   if (act === 'compare') { openCompare(); return; }
   if (act === 'add-width') { addWidths(app.querySelector('#pc-width')?.value); return; }
   const preset = t.closest('[data-preset]');
@@ -685,7 +677,7 @@ app.addEventListener('keydown', (e) => {
     addWidths(e.target.value);
     return;
   }
-  if (e.target.id === 'pc-original' && e.key === 'Enter') { readSetup(); check(); }
+  if ((e.target.id === 'pc-original' || e.target.id === 'pc-migrated') && e.key === 'Enter') { readSetup(); check(); }
 });
 
 document.addEventListener('keydown', (e) => {
@@ -709,6 +701,8 @@ document.addEventListener('keydown', (e) => {
 });
 
 function readSetup() {
+  const mig = app.querySelector('#pc-migrated');
+  if (mig) state.migrated = mig.value.trim();
   const input = app.querySelector('#pc-original');
   if (input) state.original = input.value.trim();
 }
@@ -768,14 +762,14 @@ async function start(ctx) {
       service: getSettings('demo').service, hideSelectors: DEFAULT_HIDE, widths: [640, 1024],
     }
     : getSettings(siteId());
-  state.env = state.settings.env || 'page';
   if (state.mode === 'demo') {
+    // the demo's two sample pages (on this site), with deliberate differences
     state.original = new URL('./demo/original.html', import.meta.url).href;
-    state.originalHint = 'Demo: two sample pages with deliberate differences. Open the panel from Experience Workspace to check your own pages.';
+    state.migrated = new URL('./demo/migrated.html', import.meta.url).href;
   } else {
-    // empty: the author enters the original each time
+    // both boxes start empty: the author enters the two URLs
     state.original = '';
-    state.originalHint = 'Enter the address of the original page this page was migrated from.';
+    state.migrated = '';
   }
   await refreshCached();
   // nothing runs until the author clicks "Check this page"

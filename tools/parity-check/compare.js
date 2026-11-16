@@ -56,6 +56,7 @@ function render() {
     </header>
     <div class="pc-widths" role="tablist" aria-label="Width">${report.results.map((x) => `<button type="button" role="tab" data-width="${x.width}" aria-selected="${x.width === r.width}">${x.width}px <span class="pc-wscore ${scoreClass(x.score)}">${x.score}</span></button>`).join('')}</div>
     ${state.note ? `<p class="pc-notice">${esc(state.note)}</p>` : ''}
+    ${(report.warnings || []).map((w) => `<p class="pc-notice pc-notice-warn"><strong>${w.page === 'original' ? 'The original page' : 'This page'} loads without its styles</strong> at ${esc(w.url)}: no stylesheets, web fonts or site scripts loaded, so most differences come from that.</p>`).join('')}
     <div class="pcx-grid">
       <div class="pc-visual pcx-visual" id="pc-visual"></div>
       <aside class="pcx-side">
