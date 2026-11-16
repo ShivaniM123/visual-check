@@ -61,9 +61,9 @@ Parity Check answers it in the editor, at each of the original site's breakpoint
 
 `extract.js`, `match.js`, `rules.js`, `words.js`, `prompt.js` and `breakpoints.js` are the PR's files, unchanged. With both pages captured alike, the results are the PR's: checked on the same pages, the panel and the PR's own tool found the same issues at every width. Scores can differ by about a point, because the screenshots travel as JPEG instead of the PR's PNG.
 
-**The original is captured once.** The original site doesn't change while a page is migrated, so its capture is kept in the browser (per URL and widths) and reused for every re-check: a re-check only opens the migrated page (about 10 s). **Capture again** takes a fresh copy of the original.
+**Both pages are captured fresh for every check**, at the same moment, in the same browser session. Nothing is reused from an earlier check, so the result always reflects both pages as they are now, and swapping the two pages gives a mirrored result (the same issues, the same score).
 
-**Time per check:** a first check (both pages, 2–3 widths) takes about 20 s; a re-check about 10 s.
+**Time per check:** about 20 s for 2–3 widths.
 
 ## Install
 
@@ -95,7 +95,7 @@ Open the panel address with `?demo`. It compares two sample pages from the PR, w
 - **One pair of pages at a time**, at up to 5 widths.
 - **Both pages must be public**, because Cloudflare opens them from the internet. Check previews (`…aem.page`) or live pages (`…aem.live`), not editor addresses.
 - **The capture Worker is required** (only the demo runs without it).
-- **Cloudflare's free plan**: one new browser every 20 seconds (a check uses one; if another check starts sooner, the panel waits and retries), 3 browsers at a time, and 10 minutes of browser time a day, roughly 30–60 checks. The panel tells "wait a few seconds" apart from "today's time is used up".
+- **Cloudflare's free plan**: one new browser every 20 seconds (a check uses one; if another check starts sooner, the panel waits and retries), 3 browsers at a time, and 10 minutes of browser time a day, roughly 30 checks. The panel tells "wait a few seconds" apart from "today's time is used up".
 - **A first pass, not a final verdict.** As with the PR's tool, carousels, tabs, accordions and personalised content can produce wrong issues. Approve intended differences and add noisy areas to **Ignore elements**.
 
 ## Files
@@ -119,7 +119,7 @@ tools/parity-check/
 │   ├── frame.js       # reads the demo's sample pages in the panel
 │   ├── report.js      # issue keys and review statuses
 │   ├── settings.js    # capture Worker, widths, ignore list, approvals
-│   ├── store.js       # browser storage (captured originals in IndexedDB)
+│   ├── store.js       # browser storage for settings and review statuses
 │   └── vendor/pixelmatch.js  # pixelmatch 7.1.0 (ISC), unchanged
 └── worker/
     ├── capture-worker.js  # the Cloudflare Worker (paste into the dashboard, add a Browser Run binding)

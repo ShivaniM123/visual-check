@@ -10,7 +10,6 @@
 import DA_SDK from 'https://da.live/nx/utils/sdk.js';
 import { runCheck } from './lib/compare.js';
 import { checkService } from './lib/cloud.js';
-import { captureKey, getCapture } from './lib/store.js';
 import {
   getSettings, saveSettings,
   getStatuses, saveStatuses, DEFAULT_HIDE,
@@ -55,7 +54,6 @@ const state = {
   error: null,
   changed: false,
   view: 'main', // main | settings
-  cached: null, // capture info for the current original + widths
 };
 
 const app = document.getElementById('app');
@@ -166,12 +164,6 @@ function visibleIssues() {
 
 /* ---------- running ---------- */
 
-async function refreshCached() {
-  if (!state.original) { state.cached = null; return; }
-  const cap = await getCapture(captureKey(state.original, state.settings.widths));
-  state.cached = cap ? { at: cap.capturedAt, widths: cap.widths.map((w) => w.width), local: !!cap.local } : null;
-}
-
 /**
  * Editor and preview-proxy addresses (da.live/canvas#/org/site/path, da.live/edit#/…,
  * …preview.da.live/…) need a sign-in the cloud browser doesn't have: use the page's public
@@ -191,7 +183,7 @@ export function publicAddress(input) {
   return u.href;
 }
 
-async function check({ refreshOriginal = false } = {}) {
+async function check() {
   if (state.busy) return;
   const read = (value, field, label) => {
     try {
@@ -244,7 +236,6 @@ async function check({ refreshOriginal = false } = {}) {
       ref: codeBranch(),
       // the demo original is on this site, so it's read in the panel; ?demo&cloud uses Cloudflare Browser Run
       cloud: new URLSearchParams(window.location.search).has('cloud'),
-      refreshOriginal,
       log: (step) => {
         state.step = step;
         const el = app.querySelector('.pc-progress-step');
@@ -256,7 +247,6 @@ async function check({ refreshOriginal = false } = {}) {
     if (!report.results.some((r) => r.width === state.width)) state.width = report.results[0]?.width;
     state.activeId = null;
     state.changed = false;
-    await refreshCached();
     const s = report.summary;
     toast(s.issues ? `${plural(s.issues, 'difference')} found` : 'No differences found');
   } catch (e) {
@@ -276,9 +266,6 @@ function scoreClass(s) {
 }
 
 function quotaLine() {
-  if (state.cached) {
-    return `<p class="pc-hint">Original captured ${esc(ago(state.cached.at))} at ${esc(state.cached.widths.join(', '))}px${state.cached.local ? ' (same site, read in the panel)' : ' by Cloudflare Browser Run'}. Re-checks reuse it. <button type="button" class="pc-link" data-act="recapture">Capture again</button></p>`;
-  }
   const BL = '<a href="https://developers.cloudflare.com/browser-run/" target="_blank" rel="noopener">Cloudflare Browser Run</a>';
   const cloud = new URLSearchParams(window.location.search).has('cloud');
   if (state.mode === 'demo' && !cloud) {
@@ -287,7 +274,7 @@ function quotaLine() {
   if (!serviceUrl()) {
     return `<p class="pc-hint">The original is opened by ${BL} through this site's capture Worker. <button type="button" class="pc-link" data-act="settings">Add its address</button> to start.</p>`;
   }
-  return `<p class="pc-hint">The original is opened by ${BL} (free plan: 10 minutes of browser time a day, about 10 s per width). The capture is reused for every re-check.</p>`;
+  return `<p class="pc-hint">The original is opened by ${BL} (free plan: 10 minutes of browser time a day). Both pages are captured fresh for every check, at the same moment.</p>`;
 }
 
 function breakpointsHtml() {
@@ -642,7 +629,6 @@ app.addEventListener('click', async (e) => {
   const act = t.closest('[data-act]')?.dataset.act;
   const issueEl = t.closest('.pc-issue');
   if (act === 'check') { readSetup(); check(); return; }
-  if (act === 'recapture') { readSetup(); check({ refreshOriginal: true }); return; }
   if (act === 'settings') { state.view = state.view === 'settings' ? 'main' : 'settings'; render(); return; }
   if (act === 'close-settings') { state.view = 'main'; render(); return; }
   if (act === 'save-settings') { saveSettingsForm(); return; }
@@ -711,7 +697,7 @@ function saveWidths(widths) {
   readSetup();
   state.settings.widths = widths;
   if (state.mode !== 'demo') saveSettings(siteId(), { widths });
-  refreshCached().then(render);
+  render();
 }
 
 function saveSettingsForm() {
@@ -727,7 +713,7 @@ function saveSettingsForm() {
   state.settings = { ...state.settings, service, hideSelectors };
   state.view = 'main';
   toast('Settings saved.');
-  refreshCached().then(render);
+  render();
 }
 
 async function testService() {
@@ -771,7 +757,6 @@ async function start(ctx) {
     state.original = '';
     state.migrated = '';
   }
-  await refreshCached();
   // nothing runs until the author clicks "Check this page"
   render();
 }
