@@ -31,7 +31,7 @@ export function markdownReport(report, statuses) {
     `- Checked: ${new Date(report.created).toLocaleString()} · widths ${report.widths.join(', ')}px`,
     `- Original breakpoints: ${report.breakpoints.length ? `${report.breakpoints.join(', ')}px` : 'none detected'}`,
     `- Parity score: **${report.summary.score}/100** · ${report.summary.high} high, ${report.summary.medium} medium, ${report.summary.low} low`,
-    `- Original captured by Browserless (cloud browser) on ${new Date(report.originalCapturedAt).toLocaleString()}`,
+    `- Original captured by Cloudflare Browser Run (cloud browser) on ${new Date(report.originalCapturedAt).toLocaleString()}`,
   ];
   report.results.forEach((r) => {
     out.push('', `## ${r.width}px · score ${r.score}`, '');

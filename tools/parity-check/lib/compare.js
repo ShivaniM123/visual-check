@@ -1,5 +1,5 @@
 /**
- * One parity check of the open page: the original (Browserless, cached) against the migrated
+ * One parity check of the open page: the original (Cloudflare Browser Run, cached) against the migrated
  * page (rendered in the panel), at every breakpoint. Mirrors the PR's run.js.
  */
 import { matchElements } from './match.js';
@@ -82,9 +82,9 @@ export async function getOriginal(url, {
   if (!cloud && new URL(url).origin === window.location.origin) {
     capture = await captureLocally(url, { widths, hideSelectors, log });
   } else {
-    log(`Capturing the original in Browserless's cloud browser${widths.length ? ` at ${widths.join(', ')}px` : ' at its breakpoints'}`);
+    log('Capturing the original in Cloudflare\'s cloud browser');
     capture = await captureOriginal(url, {
-      service, ref, widths, hideSelectors, maxHeight: MAX_HEIGHT,
+      service, ref, widths, hideSelectors, maxHeight: MAX_HEIGHT, log,
     });
   }
   await putCapture(key, capture);

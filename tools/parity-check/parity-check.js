@@ -2,7 +2,7 @@
 /**
  * Parity Check: an Experience Workspace panel that compares the page you're editing with its
  * original page at the original site's breakpoints, and lists every visible difference.
- * The original is captured by Browserless's cloud browser (through the site's capture Worker);
+ * The original is captured by Cloudflare's cloud browser, Browser Run (through the site's capture Worker);
  * this page is rendered in the panel.
  * The parity rules are the ones from tools/parity-check (extract, match, rules, words, prompt).
  */
@@ -131,7 +131,7 @@ function codeBranch() {
 }
 
 /**
- * The capture Worker that runs Browserless for this site: from Settings, or set for everyone
+ * The capture Worker that runs Cloudflare Browser Run for this site: from Settings, or set for everyone
  * in the library row (?service=https://parity-check.<account>.workers.dev).
  */
 function serviceUrl() {
@@ -198,7 +198,7 @@ async function check({ refreshOriginal = false } = {}) {
       service: serviceUrl(),
       // the Worker reads the capture code from this branch of the site
       ref: codeBranch(),
-      // the demo original is on this site, so it's read in the panel; ?demo&cloud uses Browserless
+      // the demo original is on this site, so it's read in the panel; ?demo&cloud uses Cloudflare Browser Run
       cloud: new URLSearchParams(window.location.search).has('cloud'),
       refreshOriginal,
       log: (step) => {
@@ -233,17 +233,17 @@ function scoreClass(s) {
 
 function quotaLine() {
   if (state.cached) {
-    return `<p class="pc-hint">Original captured ${esc(ago(state.cached.at))} at ${esc(state.cached.widths.join(', '))}px${state.cached.local ? ' (same site, read in the panel)' : ' by Browserless'}. Re-checks reuse it. <button type="button" class="pc-link" data-act="recapture">Capture again</button></p>`;
+    return `<p class="pc-hint">Original captured ${esc(ago(state.cached.at))} at ${esc(state.cached.widths.join(', '))}px${state.cached.local ? ' (same site, read in the panel)' : ' by Cloudflare Browser Run'}. Re-checks reuse it. <button type="button" class="pc-link" data-act="recapture">Capture again</button></p>`;
   }
-  const BL = '<a href="https://www.browserless.io" target="_blank" rel="noopener">Browserless</a>';
+  const BL = '<a href="https://developers.cloudflare.com/browser-run/" target="_blank" rel="noopener">Cloudflare Browser Run</a>';
   const cloud = new URLSearchParams(window.location.search).has('cloud');
   if (state.mode === 'demo' && !cloud) {
-    return `<p class="pc-hint">Both demo pages are on this site, so they're read in the panel. Pages on other sites are opened by ${BL}'s cloud browser (add <code>&amp;cloud</code> to the address to use it here too).</p>`;
+    return `<p class="pc-hint">Both demo pages are on this site, so they're read in the panel. Pages on other sites are opened by ${BL} (add <code>&amp;cloud</code> to the address to use it here too).</p>`;
   }
   if (!serviceUrl()) {
-    return `<p class="pc-hint">The original is opened by ${BL}'s cloud browser through this site's capture Worker. <button type="button" class="pc-link" data-act="settings">Add its address</button> to start.</p>`;
+    return `<p class="pc-hint">The original is opened by ${BL} through this site's capture Worker. <button type="button" class="pc-link" data-act="settings">Add its address</button> to start.</p>`;
   }
-  return `<p class="pc-hint">The original is opened by ${BL}'s cloud browser, once per check for every width (free plan: about 1,000 captures a month).</p>`;
+  return `<p class="pc-hint">The original is opened by ${BL} (free plan: 10 minutes of browser time a day, about 10 s per width). The capture is reused for every re-check.</p>`;
 }
 
 function setupHtml() {
@@ -269,7 +269,7 @@ function progressHtml() {
   if (!state.busy) return '';
   return `<section class="pc-card pc-progress" aria-live="polite"><div class="pc-spinner" aria-hidden="true"></div>
     <div><p class="pc-progress-step">${esc(state.step)}</p>
-    <p class="pc-hint">The original is read at every breakpoint in Browserless's cloud browser (about 15–30 s), then this page is rendered here at the same widths.</p></div></section>`;
+    <p class="pc-hint">The original is read at every breakpoint in Cloudflare's cloud browser (about 10 s per width), then this page is rendered here at the same widths.</p></div></section>`;
 }
 
 function errorHtml() {
@@ -404,7 +404,7 @@ function settingsHtml() {
     <label class="pc-label" for="pc-service">Capture Worker address</label>
     <div class="pc-row-inline"><input id="pc-service" type="url" autocomplete="off" spellcheck="false" value="${esc(s.service)}" placeholder="${esc(new URLSearchParams(window.location.search).get('service') || 'https://parity-check.<account>.workers.dev')}">
     <button type="button" class="pc-btn small" data-act="test-service">Test</button></div>
-    <p class="pc-hint" id="pc-service-status">The free Cloudflare Worker that runs Browserless for this site and keeps its key secret. Leave empty to use the one in the library row.</p>
+    <p class="pc-hint" id="pc-service-status">The free Cloudflare Worker that opens originals in Cloudflare's cloud browser for this site. Leave empty to use the one in the library row.</p>
     <label class="pc-label" for="pc-origin">Original site</label>
     <input id="pc-origin" type="url" spellcheck="false" value="${esc(m.origin || '')}" placeholder="https://www.example.com">
     <div class="pc-row"><div><label class="pc-label" for="pc-prefix">Path prefix</label><input id="pc-prefix" type="text" value="${esc(m.prefix || '')}" placeholder="/en"></div>
@@ -620,8 +620,8 @@ async function testService() {
   try {
     const info = await checkService(url);
     status.textContent = info.configured
-      ? '✓ Connected. The Worker is ready to capture originals with Browserless.'
-      : 'The Worker answers, but has no Browserless key yet: add the BROWSERLESS_TOKEN secret to it.';
+      ? '✓ Connected. The Worker is ready to capture originals in Cloudflare\'s cloud browser.'
+      : 'The Worker answers, but has no Browser Run binding yet: add one named BROWSER to it.';
   } catch (e) {
     status.textContent = `✗ ${e.message === 'Failed to fetch' ? 'The Worker couldn\'t be reached.' : e.message}`;
   }

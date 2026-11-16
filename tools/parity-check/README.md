@@ -6,8 +6,7 @@ Parity Check is an Experience Workspace (da.live) extension. It opens as a side 
 
 | | |
 |---|---|
-| Third party | [Browserless](https://www.browserless.io) (hosted Chrome, free plan: 1,000 units a month, no credit card): opens the original page in the cloud, reads it at every breakpoint and takes a screenshot per width |
-| | [Cloudflare Workers](worker/README.md) (free plan): a small capture Worker that keeps the Browserless key secret and only runs this site's capture |
+| Third party | [Cloudflare Browser Run](https://developers.cloudflare.com/browser-run/) (Cloudflare's headless browser, Workers free plan: 10 minutes of browser time a day) through a small [capture Worker](worker/README.md): opens the original page in the cloud, reads it at every breakpoint and takes a full-page screenshot per width. No API key or token. |
 | Panel | `https://main--visual-check--shivanim123.aem.live/tools/parity-check/parity-check.html` |
 | Demo | `https://main--visual-check--shivanim123.aem.live/tools/parity-check/parity-check.html?demo` |
 
@@ -36,7 +35,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 
 ### 4. Results and review
 - A parity score (0–100) for the page and for each width, with High / Medium / Low counts.
-- **Side by side**: the original (Browserless's screenshot) and this page (rendered live) at the selected width. They scroll together through the matching content, and every issue is pinned on both. Click a pin to open its issue.
+- **Side by side**: the original (Cloudflare's screenshot) and this page (rendered live) at the selected width. They scroll together through the matching content, and every issue is pinned on both. Click a pin to open its issue.
 - Each issue shows the original and migrated values as a table (font, size, colour, padding…), with changed words highlighted.
 - Mark each issue **Approve** (`A`, an intended difference) or **Needs fix** (`F`); move between issues with `←` `→`. Approvals are kept per page.
 
@@ -49,16 +48,16 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 
 | Page | How it's read |
 |---|---|
-| **The original** | The panel asks the site's **capture Worker** (Cloudflare), which runs the capture in **Browserless**'s cloud Chrome. The Worker reads the capture code from this site (`lib/extract.js` + `lib/capture-fn.js`), never from the request, so it can only run this site's capture. Browserless opens the original, reads it at every width with the parity core, and returns the element data and a screenshot per width. **One capture per check** (usually one Browserless unit), whatever the number of widths. |
+| **The original** | The panel asks the site's **capture Worker**, which takes a **Cloudflare Browser Run** snapshot of the original at each width, with this site's capture script added to the page (`lib/extract.js` + `lib/capture-fn.js`, read from the site, never from the request). In the page, the script reads every element with the parity core; Cloudflare returns that data and a full-page screenshot. About 7–10 s of browser time per width. |
 | **This page** | Rendered inside the panel at each width, on the same site as the panel, and read with the same parity core. No third party, no limit. |
 
 Then `match.js` pairs the elements by content, `rules.js` turns differences into issues and a score, and `prompt.js` writes the hand-off. These files, `extract.js`, `words.js` and `breakpoints.js` are the PR's, unchanged.
 
-**The original is captured once.** The original site doesn't change while a page is migrated, so the capture is kept in the browser. Every re-check after a fix reuses it (no Browserless call) and runs straight away when the panel opens. **Capture again** takes a fresh one.
+**The original is captured once.** The original site doesn't change while a page is migrated, so the capture is kept in the browser. Every re-check after a fix reuses it (no Cloudflare browser time) and runs straight away when the panel opens. **Capture again** takes a fresh one.
 
 ## Install
 
-1. Set up the free capture Worker (Cloudflare + Browserless, about 10 minutes in the browser): see [worker/README.md](worker/README.md).
+1. Set up the free capture Worker in your Cloudflare account (about 5 minutes in the browser, no key or token): see [worker/README.md](worker/README.md).
 2. Merge to `main`. The panel is then served at `/tools/parity-check/parity-check.html`.
 3. Open `https://da.live/config#/shivanim123/visual-check/`, go to the **library** sheet and add a row:
 
@@ -76,19 +75,19 @@ Then `match.js` pairs the elements by content, `rules.js` turns differences into
 
 ## Settings (gear icon)
 
-- **Capture Worker address**, with a **Test** button: the Worker that runs Browserless for this site. Empty means the one in the library row. No key is ever entered in the panel: the Browserless key lives in the Worker as a secret.
+- **Capture Worker address**, with a **Test** button: the Worker that opens originals in Cloudflare's cloud browser for this site. Empty means the one in the library row. No key or token is needed anywhere.
 - **Original site**, **path prefix**, **suffix**: where the originals of this site's pages are.
 - **Ignore elements**: CSS selectors hidden on both pages before comparing (cookie banners are ignored by default).
 
 ## Demo
 
-Open the panel address with `?demo`. It compares two sample pages with deliberate differences (font, button, image crop, columns, spacing, a missing section, an embed). Both are on this site, so the demo runs in the panel, with no capture Worker needed. Add `&cloud&service=<Worker address>` to capture the demo original with Browserless as well (on aem.page / aem.live, where Browserless can reach it).
+Open the panel address with `?demo`. It compares two sample pages with deliberate differences (font, button, image crop, columns, spacing, a missing section, an embed). Both are on this site, so the demo runs in the panel, with no capture Worker needed. Add `&cloud&service=<Worker address>` to capture the demo original with Cloudflare Browser Run as well (on aem.page / aem.live, where Cloudflare can reach it).
 
 ## Limits
 
 - **One page at a time.** The page you're editing, at every width you choose.
-- **Browserless's free plan** gives 1,000 units a month (a unit is up to 30 s of browser time; one check of 2–4 widths usually takes one). Re-checks of a captured original are free.
-- **The original must be public**, because Browserless opens it from the internet.
+- **Cloudflare's free plan** gives 10 minutes of browser time a day: about 20–30 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
+- **The original must be public**, because Cloudflare opens it from the internet. Pages that block added scripts with a strict security policy (CSP) can't be read; the panel says so.
 - **No pixel diff of this page.** It's rendered live rather than screenshotted, so the visual part of the score is the layout similarity of the matched elements (position and width).
 - **A first pass, not a final verdict.** Carousels, tabs, accordions and personalised content can produce wrong issues. Approve intended differences and add noisy areas to **Ignore elements**.
 
@@ -101,8 +100,8 @@ tools/parity-check/
 ├── demo/                            # two sample pages with deliberate differences (from the PR)
 └── lib/
     ├── extract.js, match.js, rules.js, words.js, prompt.js, breakpoints.js   # parity core, unchanged from the PR
-    ├── cloud.js       # asks the capture Worker for the original
-    ├── capture-fn.js  # the capture Browserless runs (every width, screenshots)
+    ├── cloud.js       # asks the capture Worker for a snapshot per width, reads the results
+    ├── capture-fn.js  # the capture script added to the original page in Cloudflare's browser
     ├── frame.js       # renders this page in the panel and reads it
     ├── compare.js     # one check, every width (like the PR's run.js)
     ├── visual.js      # side-by-side view with pins
@@ -110,8 +109,8 @@ tools/parity-check/
     ├── settings.js    # original address, widths, ignore list, approvals
     └── store.js       # browser storage (captured originals in IndexedDB)
 worker/
-    ├── capture-worker.js  # the Cloudflare Worker (paste into the dashboard)
-    └── README.md          # setup, about 10 minutes
+    ├── capture-worker.js  # the Cloudflare Worker (paste into the dashboard, add a Browser Run binding)
+    └── README.md          # setup, about 5 minutes
 ```
 
 `worker/` is listed in the repository's `.hlxignore`, so the site doesn't serve it.

@@ -1,27 +1,27 @@
 /**
- * Parity Check capture service: a Cloudflare Worker (free plan) in front of Browserless.
+ * Parity Check capture service: a Cloudflare Worker (free plan) using Cloudflare's own headless
+ * browser, Browser Run (https://developers.cloudflare.com/browser-run/), through a Worker binding.
+ * No API key or token is needed: the binding is enough.
  *
- * Browserless (https://www.browserless.io, free plan: 1,000 units a month, no credit card) runs a
- * real Chrome in the cloud. Its key must stay on a server, so the panel calls this Worker, which
- * adds the key and runs the site's own capture code in Browserless:
+ *   GET  /           → { ok: true, service: "parity-check-capture", configured: true }
+ *   POST /snapshot   { url, ref, width, height, hideSelectors, maxHeight, quality }
+ *                    → Browser Run's snapshot of the original page at that width:
+ *                      { success, result: { content, screenshot }, meta: { status, title } }
+ *                      The page's parity data is in the content, as JSON in #__pc-data.
  *
- *   GET  /          → { ok: true, service: "parity-check-capture", configured: true }
- *   POST /capture   { url, ref, widths, hideSelectors, height, maxHeight, scale, quality }
- *                   → { url, title, status, media, widths: [{ width, data, shot, ... }] }
- *
- * The code it runs is never taken from the request: it is read from this site
+ * The script that runs in the page is never taken from the request: it is read from this site
  * (https://{ref}--{site}--{org}.aem.live/tools/parity-check/lib/extract.js + capture-fn.js),
- * so the Worker can only capture pages, with this site's capture.
+ * so the Worker can only capture pages, with this site's capture. The answer is passed straight
+ * through to the panel, which reads it (the free plan allows 10 ms of CPU per request).
  *
- * Paste this whole file into the Worker in the Cloudflare dashboard and add the secret
- * BROWSERLESS_TOKEN (see worker/README.md).
+ * Paste this whole file into the Worker in the Cloudflare dashboard and add a Browser Run binding
+ * named BROWSER (see worker/README.md).
  */
 
 // The site whose capture code the Worker runs. Change these for another site,
 // or set SITE_ORG / SITE_REPO as Worker variables.
 const ORG = 'shivanim123';
 const REPO = 'visual-check';
-const BROWSERLESS = 'https://production-sfo.browserless.io';
 const CODE_CACHE_SECONDS = 300;
 
 // Never let the Worker be used to reach private or internal addresses.
@@ -51,6 +51,7 @@ function cors(origin) {
     'Access-Control-Allow-Origin': origin || '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Expose-Headers': 'X-Browser-Ms-Used',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -80,72 +81,66 @@ async function readCode(url) {
   return res.text();
 }
 
-/** The capture module Browserless runs: extract.js (exports removed) + capture-fn.js. */
-async function captureModule(ref, org, repo) {
+const stripExports = (code) => code.replace(/^export\s+(default\s+)?(?=(async\s+)?function)/gm, '');
+
+/** The script added to the original page: extract.js + capture-fn.js, then the call. */
+async function captureScript(ref, org, repo, opts) {
   const base = `https://${ref}--${repo}--${org}.aem.live/tools/parity-check/lib/`;
-  const [extract, captureFn] = await Promise.all([readCode(`${base}extract.js`), readCode(`${base}capture-fn.js`)]);
-  if (!extract?.includes('export function extractPage') || !captureFn?.includes('export default async function capture')) return null;
-  return `${extract.replace(/^export\s+(?=(async\s+)?function)/gm, '')}\n${captureFn}`;
+  const [extract, capture] = await Promise.all([readCode(`${base}extract.js`), readCode(`${base}capture-fn.js`)]);
+  if (!extract?.includes('export function extractPage') || !capture?.includes('export default async function capturePage')) return null;
+  return `${stripExports(extract)}\n${stripExports(capture)}\ncapturePage(${JSON.stringify(opts)});\n`;
 }
 
 function cleanRequest(body) {
   const url = publicUrl(body?.url);
   if (!url) return { error: 'blocked-url' };
-  const ref = /^[a-z0-9-]{1,60}$/i.test(body.ref || '') ? body.ref.toLowerCase() : 'main';
-  const widths = (Array.isArray(body.widths) ? body.widths : [])
-    .map((w) => Math.round(Number(w)))
-    .filter((w) => w >= 280 && w <= 2560)
-    .slice(0, 5);
-  const hideSelectors = (Array.isArray(body.hideSelectors) ? body.hideSelectors : [])
-    .filter((s) => typeof s === 'string' && s.length <= 200)
-    .slice(0, 30);
-  const num = (v, min, max, d) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Number(v))) : d);
+  const num = (v, min, max, d) => (Number.isFinite(Number(v)) ? Math.min(max, Math.max(min, Math.round(Number(v)))) : d);
   return {
-    ref,
-    context: {
-      url,
-      widths,
-      hideSelectors,
-      height: num(body.height, 400, 1600, 900),
+    url,
+    ref: /^[a-z0-9-]{1,60}$/i.test(body.ref || '') ? body.ref.toLowerCase() : 'main',
+    width: num(body.width, 280, 2560, 1280),
+    height: num(body.height, 400, 1600, 900),
+    quality: num(body.quality, 30, 90, 60),
+    opts: {
       maxHeight: num(body.maxHeight, 1000, 15000, 10000),
-      scale: num(body.scale, 0.25, 1, 0.5),
-      quality: num(body.quality, 30, 90, 60),
+      hideSelectors: (Array.isArray(body.hideSelectors) ? body.hideSelectors : [])
+        .filter((s) => typeof s === 'string' && s.length <= 200)
+        .slice(0, 30),
     },
   };
 }
 
-async function capture(request, env, origin) {
-  const token = env.BROWSERLESS_TOKEN;
-  if (!token) return json({ error: 'not-configured' }, 503, origin);
-  const body = await request.json().catch(() => null);
-  const req = cleanRequest(body);
+async function snapshot(request, env, origin) {
+  if (!env.BROWSER?.quickAction) return json({ error: 'not-configured' }, 503, origin);
+  const req = cleanRequest(await request.json().catch(() => null));
   if (req.error) return json({ error: req.error }, 400, origin);
 
-  const code = await captureModule(req.ref, env.SITE_ORG || ORG, env.SITE_REPO || REPO);
-  if (!code) return json({ error: 'core-unavailable' }, 502, origin);
+  const script = await captureScript(req.ref, env.SITE_ORG || ORG, env.SITE_REPO || REPO, req.opts);
+  if (!script) return json({ error: 'core-unavailable' }, 502, origin);
 
-  const endpoint = `${env.BROWSERLESS_URL || BROWSERLESS}/function?token=${encodeURIComponent(token)}&timeout=110000`;
   let res;
   try {
-    res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, context: req.context }),
+    res = await env.BROWSER.quickAction('snapshot', {
+      url: req.url,
+      viewport: { width: req.width, height: req.height },
+      gotoOptions: { waitUntil: 'networkidle2', timeout: 45000 },
+      addScriptTag: [{ content: script }],
+      waitForSelector: { selector: '#__pc-done', timeout: 40000 },
+      screenshotOptions: { fullPage: true, type: 'jpeg', quality: req.quality },
+      actionTimeout: 60000,
+      bestAttempt: true,
+      cacheTTL: 0,
     });
   } catch (e) {
-    return json({ error: 'capture-failed', message: 'Browserless could not be reached.' }, 502, origin);
+    const msg = String(e?.message || e);
+    if (/429|rate|limit|quota/i.test(msg)) return json({ error: 'browser-quota', message: msg }, 429, origin);
+    return json({ error: 'capture-failed', message: msg.slice(0, 300) }, 502, origin);
   }
-  if (res.status === 401 || res.status === 403) return json({ error: 'browserless-auth' }, 502, origin);
-  if (res.status === 429 || res.status === 402) return json({ error: 'browserless-quota' }, 429, origin);
-  if (res.status === 408) return json({ error: 'timeout' }, 504, origin);
-  const text = await res.text();
-  if (!res.ok) {
-    return json({ error: 'capture-failed', message: text.replace(/\s+/g, ' ').slice(0, 300) || `Browserless answered ${res.status}.` }, 502, origin);
-  }
-  return new Response(text, {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
-  });
+  // passed straight through: the panel reads the snapshot
+  const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(origin) };
+  const used = res.headers.get('X-Browser-Ms-Used');
+  if (used) headers['X-Browser-Ms-Used'] = used;
+  return new Response(res.body, { status: res.status, headers });
 }
 
 export default {
@@ -161,12 +156,16 @@ export default {
     }
     if (request.method === 'GET' && pathname === '/') {
       return json({
-        ok: true, service: 'parity-check-capture', site: `${org}/${repo}`, configured: !!env.BROWSERLESS_TOKEN,
+        ok: true,
+        service: 'parity-check-capture',
+        browser: 'cloudflare-browser-run',
+        site: `${org}/${repo}`,
+        configured: !!env.BROWSER?.quickAction,
       }, 200, ok ? origin : '*');
     }
-    if (request.method === 'POST' && pathname === '/capture') {
+    if (request.method === 'POST' && pathname === '/snapshot') {
       if (!ok) return json({ error: 'forbidden-origin' }, 403, null);
-      return capture(request, env, origin);
+      return snapshot(request, env, origin);
     }
     return json({ error: 'not-found' }, 404, ok ? origin : '*');
   },

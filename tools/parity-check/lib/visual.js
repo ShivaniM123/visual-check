@@ -1,5 +1,5 @@
 /**
- * Visual parity: the original (Browserless screenshot) and this page (rendered live in an iframe)
+ * Visual parity: the original (Cloudflare Browser Run screenshot) and this page (rendered live in an iframe)
  * side by side at one width, scaled to the panel, scrolling together, with every issue pinned.
  */
 import { openFrame } from './frame.js';
@@ -78,7 +78,7 @@ const PIN_CSS = `
   .dim { opacity: .35; }
 `;
 
-/** The original as a screenshot from Browserless. */
+/** The original as a screenshot from Cloudflare Browser Run. */
 function imagePane(el, { shot, width, scale }) {
   el.innerHTML = `<div class="pcv-scroll" style="height:${Math.round(VIEW_H * scale)}px">
     <div class="pcv-canvas" style="width:${Math.round(width * scale)}px;height:${Math.round(shot.height * scale)}px">
@@ -138,7 +138,7 @@ function layout(container, width) {
 
 /**
  * Draws both panes for one width result. Returns a controller to update pins and focus issues.
- * `original` is { shot } (Browserless) or { url } (same-site original, e.g. the demo).
+ * `original` is { shot } (Cloudflare Browser Run) or { url } (same-site original, e.g. the demo).
  */
 export async function renderVisual(container, {
   result, original, migratedUrl, onPin,
