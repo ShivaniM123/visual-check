@@ -180,6 +180,25 @@ async function refreshCached() {
   state.cached = cap ? { at: cap.capturedAt, widths: cap.widths.map((w) => w.width), local: !!cap.local } : null;
 }
 
+/**
+ * Editor and preview-proxy addresses (da.live/canvas#/org/site/path, da.live/edit#/…,
+ * …preview.da.live/…) need a sign-in the cloud browser doesn't have: use the page's public
+ * preview instead (https://main--site--org.aem.page/path).
+ */
+export function publicAddress(input) {
+  const u = new URL(input);
+  if (u.hostname === 'da.live' && /^#\//.test(u.hash)) {
+    const [org, site, ...rest] = u.hash.slice(2).split('/');
+    if (org && site) {
+      const path = `/${rest.join('/')}`.replace(/\.html$/, '').replace(/\/index$/, '/') || '/';
+      return `https://main--${site}--${org}.aem.page${path}`;
+    }
+  }
+  const proxy = u.hostname.match(/^([a-z0-9-]+--[a-z0-9-]+--[a-z0-9-]+)\.(?:stage-)?preview\.da\.live$/i);
+  if (proxy) return `https://${proxy[1]}.aem.page${u.pathname}${u.search}`;
+  return u.href;
+}
+
 async function check({ refreshOriginal = false } = {}) {
   if (state.busy) return;
   let original;
@@ -190,6 +209,16 @@ async function check({ refreshOriginal = false } = {}) {
     state.error = { title: 'Enter the original page', text: 'Enter its full address, starting with https://' };
     render();
     app.querySelector('#pc-original')?.focus();
+    return;
+  }
+  const fixed = publicAddress(original);
+  if (fixed !== original) {
+    toast(`That's an editor address: comparing with the page itself, ${fixed}`);
+    original = fixed;
+  }
+  if (original.split('#')[0] === migratedUrl().split('#')[0]) {
+    state.error = { title: 'That is this page', text: 'Enter the address of the original page this page was migrated from, not the page you are editing.' };
+    render();
     return;
   }
   if (!sameSitePanel()) {

@@ -4,8 +4,10 @@
  * through a Browser Run binding named BROWSER. No API key or token is needed.
  *
  *   GET  /          → { ok: true, service: "parity-check-capture", configured: true }
- *   POST /capture   { url, ref, widths, hideSelectors, height, maxHeight, quality }
- *                   → { media, widths: [{ width, page, shot, shotScale, shotHeight }], browserMs }
+ *   POST /capture   { url, also, ref, widths, hideSelectors, height, maxHeight, quality, scale }
+ *                   → { media, widths: [{ width, page, shot, shotScale, shotHeight }], browserMs, also }
+ *                     `also` (optional): a second page read in the same browser session at the same
+ *                     widths (the free plan allows one new browser every 20 seconds).
  *                     `page` is the page's parity data as a JSON string, `shot` a JPEG (base64).
  *
  * It drives the browser over the Chrome DevTools Protocol, the way Cloudflare's Puppeteer library
@@ -123,7 +125,12 @@ function cleanRequest(body) {
 async function openBrowser(binding) {
   const res = await binding.fetch(`${FAKE_HOST}/v1/devtools/browser?keep_alive=60000`, { method: 'POST' });
   const text = await res.text();
-  if (res.status === 429) throw Object.assign(new Error(text), { code: 'browser-quota' });
+  if (res.status === 429) {
+    // the free plan allows one new browser every 20 seconds, and 10 minutes a day
+    const daily = /time limit|browser hours|daily|per day/i.test(text);
+    const retryAfter = Number(res.headers.get('Retry-After')) || 20;
+    throw Object.assign(new Error(text || 'Too many requests'), { code: daily ? 'browser-quota' : 'browser-rate', retryAfter });
+  }
   if (res.status !== 200) throw new Error(`Cloudflare couldn't start a browser (${res.status}): ${text.slice(0, 200)}`);
   const { sessionId } = JSON.parse(text);
   const up = await binding.fetch(`${FAKE_HOST}/v1/devtools/browser/${sessionId}`, { headers: { Upgrade: 'websocket' } });
@@ -193,10 +200,72 @@ function screenshotData(msg) {
 
 const sleep = (ms) => new Promise((r) => { setTimeout(r, ms); });
 
+/**
+ * Reads one page in the open tab at every width: navigates, adds the parity core, then for each
+ * width reads the page and takes a screenshot. Returns the answer parts as text (not unpacked).
+ */
+async function capturePageSet(cdp, s, url, widths, req, script) {
+  const evalString = async (expression, timeout = 60000) => escapedString(await cdp.raw('Runtime.evaluate', {
+    expression, awaitPromise: true, returnByValue: true,
+  }, s, timeout));
+  const metrics = (width) => cdp.call('Emulation.setDeviceMetricsOverride', {
+    width, height: req.height, deviceScaleFactor: 1, mobile: false,
+  }, s);
+
+  await metrics(widths[0] || 1280);
+  const nav = await cdp.call('Page.navigate', { url }, s, 45000);
+  if (nav.errorText) throw Object.assign(new Error(`The page ${url} couldn't be opened (${nav.errorText}).`), { code: 'capture-failed' });
+  // wait for the new document, then add the parity core to it
+  for (let i = 0; i < 60; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const r = await cdp.call('Runtime.evaluate', { expression: `location.href !== "about:blank" && document.readyState !== "loading" && !window.pcCore && document.URL !== ${JSON.stringify(cdp.lastUrl || '')}`, returnByValue: true }, s).catch(() => null);
+    if (r?.result?.value === true) break;
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(250);
+  }
+  cdp.lastUrl = url;
+  const added = await cdp.call('Runtime.evaluate', { expression: script, returnByValue: true }, s);
+  if (added.exceptionDetails) throw new Error(added.exceptionDetails.exception?.description?.split('\n')[0] || 'the parity core could not run in the page');
+
+  const mediaJson = await evalString('pcCore.captureMedia().then((m) => JSON.stringify({ media: m, widths: pcCore.pickWidths(m.conditions) }))');
+  let list = widths;
+  if (!list.length) list = (JSON.parse(JSON.parse(`"${mediaJson}"`)).widths || [1280]).slice(0, MAX_WIDTHS);
+
+  const parts = [];
+  const opts = JSON.stringify({ hideSelectors: req.hideSelectors, maxHeight: req.maxHeight });
+  // eslint-disable-next-line no-restricted-syntax
+  for (const width of list) {
+    // eslint-disable-next-line no-await-in-loop
+    await metrics(width);
+    // eslint-disable-next-line no-await-in-loop
+    await sleep(600);
+    // eslint-disable-next-line no-await-in-loop
+    const page = await evalString(`pcCore.capturePage(${opts}).then((o) => { window.pcHeight = o.data.height; return JSON.stringify(o); })`);
+    // eslint-disable-next-line no-await-in-loop
+    const h = (await cdp.call('Runtime.evaluate', { expression: `Math.max(1, Math.min(window.pcHeight || 1, ${req.maxHeight}))`, returnByValue: true }, s)).result.value;
+    // eslint-disable-next-line no-await-in-loop
+    const shotMsg = await cdp.raw('Page.captureScreenshot', {
+      format: 'jpeg',
+      quality: req.quality,
+      captureBeyondViewport: true,
+      clip: {
+        x: 0, y: 0, width, height: h, scale: req.scale,
+      },
+    }, s, 60000);
+    parts.push(`{"width":${width},"shotScale":${req.scale},"shotHeight":${h},"shot":"${screenshotData(shotMsg)}","page":"${page}"}`);
+  }
+  return { widths: list, body: `{"media":"${mediaJson}","widths":[${parts.join(',')}]}` };
+}
+
 async function capture(request, env, origin) {
   if (!env.BROWSER?.fetch) return json({ error: 'not-configured' }, 503, origin);
-  const req = cleanRequest(await request.json().catch(() => null));
+  const body = await request.json().catch(() => null);
+  const req = cleanRequest(body);
   if (req.error) return json({ error: req.error }, 400, origin);
+  // a second page (this page, next to the original) is read in the same browser session:
+  // the free plan allows one new browser every 20 seconds
+  const also = body?.also ? publicUrl(body.also) : null;
+  if (body?.also && !also) return json({ error: 'blocked-url' }, 400, origin);
   const script = await captureScript(req.ref, env.SITE_ORG || ORG, env.SITE_REPO || REPO);
   if (!script) return json({ error: 'core-unavailable' }, 502, origin);
 
@@ -207,65 +276,23 @@ async function capture(request, env, origin) {
     const cdp = cdpClient(ws);
     const { targetId } = await cdp.call('Target.createTarget', { url: 'about:blank' });
     const { sessionId: s } = await cdp.call('Target.attachToTarget', { targetId, flatten: true });
-    const evalString = async (expression, timeout = 60000) => escapedString(await cdp.raw('Runtime.evaluate', {
-      expression, awaitPromise: true, returnByValue: true,
-    }, s, timeout));
-    const metrics = (width) => cdp.call('Emulation.setDeviceMetricsOverride', {
-      width, height: req.height, deviceScaleFactor: 1, mobile: false,
-    }, s);
-
     // the page's own security policy would block the capture script: switch it off for this tab
     await cdp.call('Page.setBypassCSP', { enabled: true }, s);
-    await metrics(req.widths[0] || 1280);
-    const nav = await cdp.call('Page.navigate', { url: req.url }, s, 45000);
-    if (nav.errorText) return json({ error: 'capture-failed', message: `The original page couldn't be opened (${nav.errorText}).` }, 502, origin);
-    // wait for the new document, then add the parity core to it
-    for (let i = 0; i < 60; i += 1) {
-      // eslint-disable-next-line no-await-in-loop
-      const r = await cdp.call('Runtime.evaluate', { expression: 'location.href !== "about:blank" && document.readyState !== "loading"', returnByValue: true }, s).catch(() => null);
-      if (r?.result?.value === true) break;
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(250);
-    }
-    const added = await cdp.call('Runtime.evaluate', { expression: script, returnByValue: true }, s);
-    if (added.exceptionDetails) throw new Error(added.exceptionDetails.exception?.description?.split('\n')[0] || 'the parity core could not run in the page');
 
-    const mediaJson = await evalString('pcCore.captureMedia().then((m) => JSON.stringify({ media: m, widths: pcCore.pickWidths(m.conditions) }))');
-    let { widths } = req;
-    if (!widths.length) widths = (JSON.parse(JSON.parse(`"${mediaJson}"`)).widths || [1280]).slice(0, MAX_WIDTHS);
-
-    const parts = [];
-    const opts = JSON.stringify({ hideSelectors: req.hideSelectors, maxHeight: req.maxHeight });
-    // eslint-disable-next-line no-restricted-syntax
-    for (const width of widths) {
-      // eslint-disable-next-line no-await-in-loop
-      await metrics(width);
-      // eslint-disable-next-line no-await-in-loop
-      await sleep(600);
-      // eslint-disable-next-line no-await-in-loop
-      const page = await evalString(`pcCore.capturePage(${opts}).then((o) => { window.pcHeight = o.data.height; return JSON.stringify(o); })`);
-      // eslint-disable-next-line no-await-in-loop
-      const h = (await cdp.call('Runtime.evaluate', { expression: `Math.max(1, Math.min(window.pcHeight || 1, ${req.maxHeight}))`, returnByValue: true }, s)).result.value;
-      // eslint-disable-next-line no-await-in-loop
-      const shotMsg = await cdp.raw('Page.captureScreenshot', {
-        format: 'jpeg',
-        quality: req.quality,
-        captureBeyondViewport: true,
-        clip: {
-          x: 0, y: 0, width, height: h, scale: req.scale,
-        },
-      }, s, 60000);
-      parts.push(`{"width":${width},"shotScale":${req.scale},"shotHeight":${h},"shot":"${screenshotData(shotMsg)}","page":"${page}"}`);
-    }
+    const first = await capturePageSet(cdp, s, req.url, req.widths, req, script);
+    const second = also ? await capturePageSet(cdp, s, also, first.widths, req, script) : null;
     cdp.raw('Browser.close', {}, undefined, 3000).catch(() => {});
-    const body = `{"media":"${mediaJson}","browserMs":${Date.now() - started},"widths":[${parts.join(',')}]}`;
-    return new Response(body, {
+    // the first page's fields at the top level (as before), the second page under "also"
+    const out = `${first.body.slice(0, -1)},"browserMs":${Date.now() - started}${second ? `,"also":${second.body}` : ''}}`;
+    return new Response(out, {
       status: 200,
       headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors(origin) },
     });
   } catch (e) {
     const msg = String(e?.message || e);
-    if (e?.code === 'browser-quota' || /429|rate limit|quota|limit exceeded/i.test(msg)) return json({ error: 'browser-quota', message: msg.slice(0, 300) }, 429, origin);
+    if (e?.code === 'browser-rate') return json({ error: 'browser-rate', retryAfter: e.retryAfter, message: msg.slice(0, 300) }, 429, origin);
+    if (e?.code === 'browser-quota' || /time limit|browser hours|daily/i.test(msg)) return json({ error: 'browser-quota', message: msg.slice(0, 300) }, 429, origin);
+    if (/429|rate limit|too many/i.test(msg)) return json({ error: 'browser-rate', retryAfter: 20, message: msg.slice(0, 300) }, 429, origin);
     if (e?.code === 'timeout') return json({ error: 'timeout', message: msg }, 504, origin);
     return json({ error: 'capture-failed', message: msg.slice(0, 300) }, 502, origin);
   } finally {
@@ -289,7 +316,7 @@ export default {
         ok: true,
         service: 'parity-check-capture',
         browser: 'cloudflare-browser-run',
-        version: 3,
+        version: 4,
         site: `${org}/${repo}`,
         configured: !!env.BROWSER?.fetch,
       }, 200, ok ? origin : '*');

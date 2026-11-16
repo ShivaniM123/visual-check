@@ -3,7 +3,7 @@
 Parity Check opens the original page in **Cloudflare Browser Run**, Cloudflare's headless browser in the cloud, to read it at every breakpoint and take a full-page screenshot per width. This small Cloudflare Worker runs that capture. It uses a **Browser Run binding**, so there's no API key or token anywhere: everything stays in your Cloudflare account.
 
 - **Cost:** free, with no credit card.
-  - Browser Run on the Workers free plan: **10 minutes of browser time a day**, 3 browsers at a time. A capture of 2–3 widths takes about 10–20 s in one browser session: roughly 30–60 new captures a day. Re-checks reuse the captured original and cost nothing.
+  - Browser Run on the Workers free plan: **10 minutes of browser time a day**, 3 browsers at a time, and **one new browser every 20 seconds**. A check reads the original and this page in the same browser session, so it needs one; if another check starts within 20 seconds, the panel waits and retries by itself. A capture of 2–3 widths takes about 10–20 s in one browser session: roughly 30–60 new captures a day. Re-checks reuse the captured original and cost nothing.
   - Workers free plan: 100,000 requests a day.
 - **Privacy:** the Worker only receives the original page's address and the width. It stores nothing.
 - **Safety:** it only answers this site's pages (its aem.page / aem.live previews and Experience Workspace). It refuses private or internal addresses, and it only runs this site's own capture script, which it reads from the site and never from the request.

@@ -131,7 +131,20 @@ export async function runCheck({
   };
   let orig;
   let mig;
-  if (widths.length) {
+  const origKey = `v3|${captureKey(original, widths)}`;
+  const cached = refreshOriginal ? null : await getCapture(origKey);
+  const bothInCloud = !cached && migratedCloudUrl && service && !local(original, cloud);
+  if (bothInCloud) {
+    // one browser session for both pages (the free plan opens one new browser every 20 s)
+    const both = await captureOriginal(original, {
+      service, ref, widths, hideSelectors, maxHeight: MAX_HEIGHT, also: migratedCloudUrl, log, ...SHOT,
+    });
+    const { also, ...first } = both;
+    await putCapture(origKey, first);
+    orig = { ...first, fromCache: false };
+    // an older Worker reads one page per call: then this page is captured on its own
+    mig = also || await getMigrated({ ...migOpts, widths: orig.widths.map((w) => w.width) });
+  } else if (widths.length) {
     // both at once: the widths are known
     [orig, mig] = await Promise.all([
       getOriginal(original, {

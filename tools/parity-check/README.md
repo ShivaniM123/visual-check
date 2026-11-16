@@ -89,7 +89,7 @@ Open the panel address with `?demo`. It compares two sample pages with deliberat
 ## Limits
 
 - **One page at a time.** The page you're editing, at every width you choose.
-- **Cloudflare's free plan** gives 10 minutes of browser time a day: about 30–60 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
+- **Cloudflare's free plan** opens one new browser every 20 seconds (a check uses one; the panel waits and retries when needed) and gives 10 minutes of browser time a day: about 30–60 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
 - **The original must be public**, because Cloudflare opens it from the internet.
 - **This page is checked as last previewed.** Preview your edits, then check again. Pages read in the panel (no capture Worker, local preview) have no pixel comparison, so their score is less exact.
 - **A first pass, not a final verdict.** Carousels, tabs, accordions and personalised content can produce wrong issues. Approve intended differences and add noisy areas to **Ignore elements**.
