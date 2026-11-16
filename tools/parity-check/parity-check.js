@@ -100,28 +100,19 @@ function toast(message) {
 const siteId = () => `${state.ctx.org}/${state.ctx.repo}`;
 
 /** The page's public address (shown, and given to AEM Coder). */
+/**
+ * The page being checked: its public URL, on the preview (aem.page) or the live site (aem.live),
+ * exactly as visitors get it. Never the Document Authoring source.
+ */
 function migratedUrl() {
   if (state.mode === 'demo') return new URL('./demo/migrated.html', import.meta.url).href;
   const { org, repo, branch, path } = state.ctx;
-  return `https://${branch}--${repo}--${org}.aem.page${path}`;
+  return `https://${branch}--${repo}--${org}.aem.${state.env === 'live' ? 'live' : 'page'}${path}`;
 }
 
-/**
- * Where the panel renders the page. In Experience Workspace the panel is served by the DA
- * preview proxy (*.preview.da.live), which composes the page from its DA source: so the check
- * sees the latest edits, even before they're previewed.
- */
+/** Only the demo renders its pages in the panel (they are on this site, not public). */
 function renderUrl() {
-  if (state.mode === 'demo') return migratedUrl();
-  return `${window.location.origin}${state.ctx.path}`;
-}
-
-function sameSitePanel() {
-  if (state.mode === 'demo') return true;
-  const { hostname } = window.location;
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
-  const [, repo, org] = hostname.split('.')[0].split('--');
-  return repo?.toLowerCase() === state.ctx.repo.toLowerCase() && org?.toLowerCase() === state.ctx.org.toLowerCase();
+  return migratedUrl();
 }
 
 /**
@@ -132,8 +123,7 @@ function sameSitePanel() {
 function migratedCloudUrl() {
   if (!serviceUrl()) return null;
   if (state.mode === 'demo' && !new URLSearchParams(window.location.search).has('cloud')) return null;
-  const url = migratedUrl();
-  return /^https:\/\//.test(url) && !/(^|\.)(localhost|127\.0\.0\.1)$/.test(new URL(url).hostname) ? url : null;
+  return migratedUrl();
 }
 
 /**
@@ -221,10 +211,10 @@ async function check({ refreshOriginal = false } = {}) {
     render();
     return;
   }
-  if (!sameSitePanel()) {
+  if (state.mode !== 'demo' && !serviceUrl()) {
     state.error = {
-      title: 'This page can\'t be read from here',
-      text: `The panel is installed from another site. Add it to this site's library with a relative path (/tools/parity-check/parity-check.html), so it runs on ${state.ctx.repo}.`,
+      title: 'The capture Worker isn\'t set up',
+      text: 'Both pages are opened by their public URLs in Cloudflare\'s cloud browser. Add the capture Worker\'s address in Settings (gear icon), or to the library row as ?service=….',
     };
     render();
     return;
@@ -315,8 +305,22 @@ function breakpointsHtml() {
     </div>`;
 }
 
+function pageHtml() {
+  if (state.mode === 'demo') return '';
+  const dis = state.busy ? 'disabled' : '';
+  return `<div class="pc-page-url">
+      <div class="pc-bp-head"><span class="pc-label">This page</span>
+        <span class="pc-env" role="group" aria-label="Check the preview or the live page">
+          <button type="button" data-env="page" aria-pressed="${state.env !== 'live'}" ${dis}>Preview</button><button type="button" data-env="live" aria-pressed="${state.env === 'live'}" ${dis}>Live</button>
+        </span></div>
+      <a class="pc-url" href="${esc(migratedUrl())}" target="_blank" rel="noopener">${esc(migratedUrl())}</a>
+      <p class="pc-hint">${state.env === 'live' ? 'The published page, as visitors see it.' : 'The previewed page. Preview your edits before checking.'}</p>
+    </div>`;
+}
+
 function setupHtml() {
   return `<section class="pc-card pc-setup" aria-label="Compare with">
+    ${pageHtml()}
     <label class="pc-label" for="pc-original">Original page</label>
     <input id="pc-original" type="url" spellcheck="false" autocomplete="off" placeholder="https://www.example.com/the-same-page" value="${esc(state.original)}" ${state.busy ? 'disabled' : ''}>
     <p class="pc-hint">${esc(state.originalHint)}</p>
@@ -342,9 +346,8 @@ function noticesHtml() {
   const { report } = state;
   const out = [];
   const cloud = report.migratedSource === 'cloud';
-  if (state.changed) out.push(`<p class="pc-notice">The page changed since the last check.${cloud ? ' Preview it, then' : ''} <button type="button" class="pc-link" data-act="check">Check again</button></p>`);
-  if (cloud) out.push('<p class="pc-notice pc-notice-info">Both pages were opened in the same cloud browser and compared pixel by pixel. This page is checked as last previewed.</p>');
-  else if (state.mode !== 'demo') out.push('<p class="pc-notice">This page was read in the panel, without a pixel comparison, so results are less exact. Add the capture Worker in Settings to compare both pages in the cloud.</p>');
+  if (state.changed) out.push(`<p class="pc-notice">The page changed since the last check. ${state.env === 'live' ? 'Publish' : 'Preview'} it, then <button type="button" class="pc-link" data-act="check">check again</button>.</p>`);
+  if (cloud) out.push(`<p class="pc-notice pc-notice-info">Both pages were opened by their URLs in the same cloud browser and compared pixel by pixel: ${esc(report.migratedCaptured || report.migrated)}</p>`);
   if (report.breakpoints.length) {
     const mm = report.breakpointMismatch;
     const miss = mm.missingInMigrated.length ? ` The migrated CSS has no media query at ${mm.missingInMigrated.join(', ')}px.` : '';
@@ -572,9 +575,9 @@ async function downloadPdf(btn) {
 }
 
 /**
- * Where the comparison tab opens, and the page it renders next to the original. In Experience
- * Workspace the panel runs on DA's preview proxy, which a separate tab can't use, so the tab runs
- * on this branch's aem.page preview and shows the page as last previewed.
+ * Where the comparison tab opens. In Experience Workspace the panel runs on DA's preview proxy,
+ * which a separate tab can't use, so the tab runs on this branch's aem.page preview. It shows the
+ * two pages' screenshots from the check.
  */
 function compareTarget() {
   const here = new URL(window.location.href);
@@ -585,7 +588,7 @@ function compareTarget() {
   return {
     url: `${origin}/tools/parity-check/compare.html`,
     migrated: `${origin}${state.ctx.path}`,
-    note: 'This tab shows the page as last previewed. Edits that aren\'t previewed yet show in the panel only.',
+    note: '',
   };
 }
 
@@ -645,6 +648,14 @@ app.addEventListener('click', async (e) => {
   if (act === 'save-settings') { saveSettingsForm(); return; }
   if (act === 'test-service') { testService(); return; }
   if (act === 'pdf') { downloadPdf(t.closest('[data-act]')); return; }
+  const env = t.closest('[data-env]');
+  if (env) {
+    readSetup();
+    state.env = env.dataset.env;
+    if (state.mode !== 'demo') saveSettings(siteId(), { env: state.env });
+    render();
+    return;
+  }
   if (act === 'compare') { openCompare(); return; }
   if (act === 'add-width') { addWidths(app.querySelector('#pc-width')?.value); return; }
   const preset = t.closest('[data-preset]');
@@ -757,6 +768,7 @@ async function start(ctx) {
       service: getSettings('demo').service, hideSelectors: DEFAULT_HIDE, widths: [640, 1024],
     }
     : getSettings(siteId());
+  state.env = state.settings.env || 'page';
   if (state.mode === 'demo') {
     state.original = new URL('./demo/original.html', import.meta.url).href;
     state.originalHint = 'Demo: two sample pages with deliberate differences. Open the panel from Experience Workspace to check your own pages.';

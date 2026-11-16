@@ -20,7 +20,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 
 ### 1. Checks the page you're editing
 - The panel knows the open page from the editor. The **Original page** field starts empty: enter the address of the page this one was migrated from, then click **Check this page**. Nothing runs until you do.
-- **It checks your latest edits.** In Experience Workspace the panel renders the page from its Document Authoring source, so changes show up before you preview them.
+- **It checks the page URLs, as visitors get them**, never the Document Authoring source: this page's public URL (**Preview**, `…aem.page`, or **Live**, `…aem.live`, shown in the panel) against the original's URL. Editor addresses pasted as the original (`da.live/canvas#/…`, `da.live/edit#/…`) are turned into the page's public URL.
 - When you edit the page after a check, the panel says "The page changed since the last check" with a **Check again** button.
 
 ### 2. The original's breakpoints
@@ -43,7 +43,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 
 ### 5. Comparison in a new tab
 - **Open comparison in new tab** (bottom of the panel) shows the original and this page side by side at full size, with every issue pinned and listed next to them, a tab per width, severity filters and arrow-key navigation.
-- The panel sends the results to the tab directly (inside Experience Workspace the two can't share browser storage). In Workspace the tab shows the page as **last previewed**; edits that aren't previewed yet show in the panel only.
+- The panel sends the results, with both pages' screenshots, to the tab directly (inside Experience Workspace the two can't share browser storage).
 
 ### 6. PDF report
 - **Download PDF** (in the panel and in the comparison tab) saves a PDF file: a cover with the score, the widths and the original's breakpoints, then a section per width with every issue (title, details, original and migrated values, element, block, Approve / Needs fix status) and a crop of the original's screenshot showing where it is.
@@ -54,7 +54,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 | Page | How it's read |
 |---|---|
 | **The original** | The panel asks the site's **capture Worker**, which opens the original in **Cloudflare Browser Run** (one browser session for every width) and adds this site's capture script to it (`lib/extract.js` + `lib/capture-fn.js`, read from the site, never from the request). The page's security policy is switched off for that tab, so strict sites such as Edge Delivery pages can be read. At each width the script reads every element with the parity core, and the Worker takes a screenshot. About 10–20 s of browser time for a capture of 2–3 widths. |
-| **This page** | Captured the same way, in the same cloud browser with the same settings, from its preview (`main--visual-check--shivanim123.aem.page`), so the check sees the page as last previewed. Without a capture Worker (or for local pages) it's read inside the panel instead, without a pixel comparison. |
+| **This page** | Opened the same way, by its public URL (`https://main--visual-check--shivanim123.aem.page/…` for Preview, `…aem.live/…` for Live), in the same cloud browser session with the same settings. |
 
 Then, as in the PR's `run.js`: `match.js` pairs the elements by content (section by section, so moved sections aren't reported as missing), `diff.js` compares the two screenshots pixel by pixel with **pixelmatch** (the PR's diff, run in the browser), and `rules.js` turns the differences into issues and a score. `extract.js`, `match.js`, `rules.js`, `words.js`, `prompt.js` and `breakpoints.js` are the PR's, unchanged; with both pages captured alike, the results are the PR's results. Scrollbars are hidden during capture, as in the PR's browser, so each width is the page's real layout width.
 
@@ -70,7 +70,7 @@ Then, as in the PR's `run.js`: `match.js` pairs the elements by content (section
    |---|---|---|---|
    | Parity Check | `/tools/parity-check/parity-check.html?service=https://parity-check.<subdomain>.workers.dev` | `/tools/parity-check/icon.svg` | `inline` |
 
-   - Use a **relative path** (starting with `/`). Workspace then loads the panel from this site's preview, so it can render the page you're editing.
+   - A relative path (starting with `/`) loads the panel from this site; an absolute URL works too.
    - `service=` is the capture Worker's address (from step 1). An author can also enter it in **Settings**.
    - If the site has no `library` sheet yet, add it with the **+** button next to the sheet tabs.
 4. Save the config, reload Experience Workspace, open a page and choose **Parity Check** in the side-panel switcher.
@@ -91,7 +91,7 @@ Open the panel address with `?demo`. It compares two sample pages with deliberat
 - **One page at a time.** The page you're editing, at every width you choose.
 - **Cloudflare's free plan** opens one new browser every 20 seconds (a check uses one; the panel waits and retries when needed) and gives 10 minutes of browser time a day: about 30–60 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
 - **The original must be public**, because Cloudflare opens it from the internet.
-- **This page is checked as last previewed.** Preview your edits, then check again. Pages read in the panel (no capture Worker, local preview) have no pixel comparison, so their score is less exact.
+- **Pages are checked by their URLs.** Preview (or publish) your edits, then check again. Both pages must be public, because Cloudflare opens them from the internet. The capture Worker is required (only the demo runs without it).
 - **A first pass, not a final verdict.** Carousels, tabs, accordions and personalised content can produce wrong issues. Approve intended differences and add noisy areas to **Ignore elements**.
 
 ## Files

@@ -19,6 +19,7 @@ export function getSettings(siteId) {
     service: all.service || '',
     hideSelectors: site.hideSelectors || DEFAULT_HIDE,
     widths: site.widths || [], // [] = the original's own breakpoints
+    env: site.env === 'live' ? 'live' : 'page', // check the preview or the live page
   };
 }
 
