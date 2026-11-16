@@ -111,7 +111,7 @@ function cleanRequest(body) {
     height: Math.round(num(body.height, 400, 1600, 900)),
     maxHeight: Math.round(num(body.maxHeight, 1000, 12000, 8000)),
     quality: Math.round(num(body.quality, 30, 90, 55)),
-    scale: num(body.scale, 0.25, 1, 0.5),
+    scale: num(body.scale, 0.25, 1, 0.75),
     hideSelectors: (Array.isArray(body.hideSelectors) ? body.hideSelectors : [])
       .filter((s) => typeof s === 'string' && s.length <= 200)
       .slice(0, 30),

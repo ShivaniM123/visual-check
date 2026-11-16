@@ -127,12 +127,12 @@ async function framePane(el, { url, width, scale }) {
   };
 }
 
-function layout(container, width) {
+function layout(container, width, maxPaneHeight = MAX_PANE_H) {
   const avail = Math.max(240, container.clientWidth);
   const side = (avail - 10) / 2 / width;
   const sideBySide = side >= 0.3;
   let scale = sideBySide ? side : avail / width;
-  scale = Math.min(scale, MAX_PANE_H / VIEW_H, 1);
+  scale = Math.min(scale, maxPaneHeight / VIEW_H, 1);
   return { sideBySide, scale };
 }
 
@@ -141,10 +141,10 @@ function layout(container, width) {
  * `original` is { shot } (Cloudflare Browser Run) or { url } (same-site original, e.g. the demo).
  */
 export async function renderVisual(container, {
-  result, original, migratedUrl, onPin,
+  result, original, migratedUrl, onPin, maxPaneHeight,
 }) {
   const { width, anchors } = result;
-  const { sideBySide, scale } = layout(container, width);
+  const { sideBySide, scale } = layout(container, width, maxPaneHeight);
   container.innerHTML = `<div class="pcv ${sideBySide ? 'side' : 'stack'}">
     <figure class="pcv-side"><figcaption>Original</figcaption><div class="pcv-pane" data-side="o"></div></figure>
     <figure class="pcv-side"><figcaption>This page</figcaption><div class="pcv-pane" data-side="m"></div></figure>

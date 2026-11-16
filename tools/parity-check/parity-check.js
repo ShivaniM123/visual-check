@@ -15,10 +15,13 @@ import {
   getSettings, saveSettings, presetMapping, guessOriginal, pageOriginal, rememberOriginal,
   getStatuses, saveStatuses, DEFAULT_HIDE,
 } from './lib/settings.js';
-import { issueKey, coderPrompt, markdownReport } from './lib/report.js';
+import { issueKey } from './lib/report.js';
+import { pdfReport } from './lib/pdf.js';
 import { renderVisual } from './lib/visual.js';
 
 const SDK_TIMEOUT = 6000;
+const MAX_WIDTHS = 5;
+const PRESETS = [[390, 'Phone'], [768, 'Tablet'], [1024, 'Small laptop'], [1280, 'Desktop'], [1440, 'Wide']];
 const SEV_LABEL = { high: 'High', medium: 'Medium', low: 'Low' };
 const CATEGORY_LABEL = {
   typography: 'Typography',
@@ -246,20 +249,34 @@ function quotaLine() {
   return `<p class="pc-hint">The original is opened by ${BL} (free plan: 10 minutes of browser time a day, about 10 s per width). The capture is reused for every re-check.</p>`;
 }
 
-function setupHtml() {
+function breakpointsHtml() {
   const w = state.settings.widths;
-  const chips = w.length
-    ? w.map((x) => `<span class="pc-chip">${x}px<button type="button" data-rmw="${x}" aria-label="Remove ${x}px">×</button></span>`).join('')
-    : '<span class="pc-chip auto">Auto: the original\'s breakpoints</span>';
+  const auto = !w.length;
+  const dis = state.busy ? 'disabled' : '';
+  const presets = PRESETS.map(([px, name]) => `<button type="button" class="pc-preset" data-preset="${px}" aria-pressed="${w.includes(px)}" ${dis} title="${name}">${px}<small>${name}</small></button>`).join('');
+  const custom = w.filter((x) => !PRESETS.some(([px]) => px === x))
+    .map((x) => `<span class="pc-chip">${x}px<button type="button" data-rmw="${x}" aria-label="Remove ${x}px" ${dis}>×</button></span>`).join('');
+  const found = auto && state.report?.widths?.length ? ` Last check used ${state.report.widths.join(', ')}px.` : '';
+  return `<div class="pc-bp" role="group" aria-labelledby="pc-bp-label">
+      <div class="pc-bp-head"><span class="pc-label" id="pc-bp-label">Breakpoints</span>
+        <label class="pc-toggle"><input type="checkbox" data-act="auto-toggle" ${auto ? 'checked' : ''} ${dis}> Auto</label></div>
+      <p class="pc-hint">${auto
+    ? `The original's own breakpoints, read from its CSS, plus a phone width.${esc(found)} Pick widths below to choose them yourself.`
+    : `${w.length} of ${MAX_WIDTHS} widths: ${w.join(', ')}px. Each width is checked on both pages.`}</p>
+      <div class="pc-presets">${presets}</div>
+      <div class="pc-chips">${custom}
+        <input id="pc-width" class="pc-width-input" type="text" inputmode="numeric" placeholder="e.g. 600, 1920" aria-label="Add widths in pixels, separated by commas" ${dis}>
+        <button type="button" class="pc-btn small" data-act="add-width" ${dis}>Add</button>
+      </div>
+    </div>`;
+}
+
+function setupHtml() {
   return `<section class="pc-card pc-setup" aria-label="Compare with">
     <label class="pc-label" for="pc-original">Original page</label>
     <input id="pc-original" type="url" spellcheck="false" autocomplete="off" placeholder="https://www.example.com/the-same-page" value="${esc(state.original)}" ${state.busy ? 'disabled' : ''}>
     <p class="pc-hint">${esc(state.originalHint)}</p>
-    <label class="pc-label" for="pc-width">Breakpoints</label>
-    <div class="pc-chips">${chips}
-      <input id="pc-width" class="pc-width-input" type="number" min="280" max="2560" placeholder="Add px" aria-label="Add a width in pixels" ${state.busy ? 'disabled' : ''}>
-      ${w.length ? '<button type="button" class="pc-link" data-act="auto">Use auto</button>' : ''}
-    </div>
+    ${breakpointsHtml()}
     <button type="button" class="pc-btn primary pc-run" data-act="check" ${state.busy ? 'disabled' : ''}>${state.report ? 'Check again' : 'Check this page'}</button>
     ${quotaLine()}
   </section>`;
@@ -380,7 +397,6 @@ function resultsHtml() {
   const { report } = state;
   if (!report) return '';
   const r = result();
-  const chat = !!state.sdk?.actions?.setPrompt;
   return `${summaryHtml()}
     <div class="pc-notices">${noticesHtml()}</div>
     <div class="pc-widths" role="tablist" aria-label="Width">${report.results.map((x) => `<button type="button" role="tab" data-width="${x.width}" aria-selected="${x.width === r.width}">
@@ -390,9 +406,8 @@ function resultsHtml() {
     ${issuesHtml()}
     <p class="pc-hint pc-keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>A</kbd> approve · <kbd>F</kbd> needs fix · click a pin to open its issue</p>
     <div class="pc-actions">
-      ${chat ? '<button type="button" class="pc-btn primary" data-act="chat">Ask in Chat</button>' : ''}
-      <button type="button" class="pc-btn${chat ? '' : ' primary'}" data-act="copy">Copy for AEM Coder</button>
-      <button type="button" class="pc-btn" data-act="download">Download report</button>
+      <button type="button" class="pc-btn primary" data-act="compare">Open comparison in new tab</button>
+      <button type="button" class="pc-btn" data-act="pdf">Download PDF</button>
     </div>`;
 }
 
@@ -491,24 +506,85 @@ function setStatus(id, value) {
 
 /* ---------- hand-off ---------- */
 
-async function copyPrompt() {
-  await navigator.clipboard.writeText(coderPrompt(state.report, state.statuses));
-  toast('Copied. Paste it into AEM Coder.');
+async function downloadPdf(btn) {
+  btn.disabled = true;
+  btn.textContent = 'Making PDF…';
+  try {
+    const blob = await pdfReport(state.report, state.statuses);
+    const a = document.createElement('a');
+    const path = state.ctx.path.replace(/^\/|\/$/g, '').replace(/[^a-z0-9]+/gi, '-') || 'index';
+    a.href = URL.createObjectURL(blob);
+    a.download = `parity-${path}-${new Date().toISOString().slice(0, 10)}.pdf`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast('PDF report downloaded.');
+  } catch (e) {
+    toast(`The PDF couldn't be made: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Download PDF';
+  }
 }
 
-function askInChat() {
-  state.sdk.actions.setPrompt(coderPrompt(state.report, state.statuses), { autoSend: false });
-  toast('The issues are in the chat box. Review and send.');
+/**
+ * Where the comparison tab opens, and the page it renders next to the original. In Experience
+ * Workspace the panel runs on DA's preview proxy, which a separate tab can't use, so the tab runs
+ * on this branch's aem.page preview and shows the page as last previewed.
+ */
+function compareTarget() {
+  const here = new URL(window.location.href);
+  if (state.mode === 'demo' || !/\.preview\.da\.live$/.test(here.hostname)) {
+    return { url: new URL('./compare.html', import.meta.url).href, migrated: renderUrl(), note: '' };
+  }
+  const origin = `https://${codeBranch()}--${state.ctx.repo}--${state.ctx.org}.aem.page`;
+  return {
+    url: `${origin}/tools/parity-check/compare.html`,
+    migrated: `${origin}${state.ctx.path}`,
+    note: 'This tab shows the page as last previewed. Edits that aren\'t previewed yet show in the panel only.',
+  };
 }
 
-function download() {
-  const md = markdownReport(state.report, state.statuses);
-  const a = document.createElement('a');
-  const path = state.ctx.path.replace(/^\/|\/$/g, '').replace(/[^a-z0-9]+/gi, '-') || 'index';
-  a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
-  a.download = `parity-${path}-${new Date().toISOString().slice(0, 10)}.md`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+let compareWin = null;
+let compareData = null;
+
+function openCompare() {
+  const target = compareTarget();
+  compareData = {
+    type: 'pc:report',
+    report: state.report,
+    statuses: state.statuses,
+    migratedUrl: target.migrated,
+    note: target.note,
+    width: state.width,
+  };
+  compareWin = window.open(target.url, '_blank');
+  if (!compareWin) toast('The browser blocked the new tab. Allow pop-ups for this site and try again.');
+}
+
+// the comparison tab asks for the results once it has loaded
+window.addEventListener('message', (e) => {
+  if (!compareWin || e.source !== compareWin || e.data?.type !== 'pc:ready' || !compareData) return;
+  compareWin.postMessage(compareData, e.origin);
+});
+
+function addWidths(text) {
+  const values = String(text || '').split(/[\s,;]+/).map((v) => Math.round(Number(v.replace(/px$/i, '')))).filter((v) => v >= 280 && v <= 2560);
+  if (!values.length) { toast('Enter widths between 280 and 2560 px, e.g. 600, 1920'); return; }
+  const current = state.settings.widths;
+  const fresh = [...new Set(values)].filter((v) => !current.includes(v));
+  const room = MAX_WIDTHS - current.length;
+  if (!fresh.length) { toast('Those widths are already in the list.'); return; }
+  if (room <= 0) { toast(`Up to ${MAX_WIDTHS} widths per check. Remove one first.`); return; }
+  const added = fresh.slice(0, room);
+  if (added.length < fresh.length) toast(`Up to ${MAX_WIDTHS} widths per check: added ${added.join(', ')}px.`);
+  saveWidths([...current, ...added].sort((a, b) => a - b));
+}
+
+function togglePreset(px) {
+  const w = state.settings.widths;
+  if (w.includes(px)) { saveWidths(w.filter((x) => x !== px)); return; }
+  if (w.length >= MAX_WIDTHS) { toast(`Up to ${MAX_WIDTHS} widths per check. Remove one first.`); return; }
+  saveWidths([...w, px].sort((a, b) => a - b));
 }
 
 /* ---------- events ---------- */
@@ -519,14 +595,15 @@ app.addEventListener('click', async (e) => {
   const issueEl = t.closest('.pc-issue');
   if (act === 'check') { readSetup(); check(); return; }
   if (act === 'recapture') { readSetup(); check({ refreshOriginal: true }); return; }
-  if (act === 'auto') { saveWidths([]); return; }
   if (act === 'settings') { state.view = state.view === 'settings' ? 'main' : 'settings'; render(); return; }
   if (act === 'close-settings') { state.view = 'main'; render(); return; }
   if (act === 'save-settings') { saveSettingsForm(); return; }
   if (act === 'test-service') { testService(); return; }
-  if (act === 'copy') { copyPrompt().catch((err) => toast(err.message)); return; }
-  if (act === 'chat') { askInChat(); return; }
-  if (act === 'download') { download(); return; }
+  if (act === 'pdf') { downloadPdf(t.closest('[data-act]')); return; }
+  if (act === 'compare') { openCompare(); return; }
+  if (act === 'add-width') { addWidths(app.querySelector('#pc-width')?.value); return; }
+  const preset = t.closest('[data-preset]');
+  if (preset) { togglePreset(Number(preset.dataset.preset)); return; }
   if ((act === 'ok' || act === 'fix') && issueEl) { setStatus(issueEl.dataset.id, act); return; }
   const rm = t.closest('[data-rmw]');
   if (rm) { saveWidths(state.settings.widths.filter((w) => w !== Number(rm.dataset.rmw))); return; }
@@ -544,12 +621,12 @@ app.addEventListener('click', async (e) => {
 
 app.addEventListener('change', (e) => {
   if (e.target.dataset.act === 'hide-approved') { state.hideApproved = e.target.checked; renderList(); }
+  if (e.target.dataset.act === 'auto-toggle') saveWidths(e.target.checked ? [] : [390, 1280]);
 });
 
 app.addEventListener('keydown', (e) => {
   if (e.target.id === 'pc-width' && e.key === 'Enter') {
-    const v = Math.round(Number(e.target.value));
-    if (v >= 280 && v <= 2560) saveWidths([...new Set([...state.settings.widths, v])].sort((a, b) => a - b));
+    addWidths(e.target.value);
     return;
   }
   if (e.target.id === 'pc-original' && e.key === 'Enter') { readSetup(); check(); }

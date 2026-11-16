@@ -428,3 +428,47 @@ kbd {
   .pc-spinner { animation-duration: 3s; }
   .pc-toast { transition: none; }
 }
+
+/* breakpoint picker */
+.pc-bp { display: grid; gap: 6px; margin-top: 4px; }
+.pc-bp-head { display: flex; justify-content: space-between; align-items: center; }
+.pc-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+
+.pc-preset {
+  display: grid;
+  border: 1px solid #c8c8c8;
+  background: var(--pc-card);
+  border-radius: 6px;
+  padding: 4px 2px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--pc-text);
+}
+
+.pc-preset small { font-weight: 400; font-size: 10px; color: var(--pc-muted); }
+.pc-preset:hover { border-color: var(--pc-accent); }
+.pc-preset[aria-pressed="true"] { background: #eef2ff; border-color: var(--pc-accent); color: #1d3ecf; }
+.pc-preset[aria-pressed="true"] small { color: #1d3ecf; }
+.pc-preset:disabled { opacity: .5; cursor: default; }
+.pc-bp .pc-width-input { width: 120px; }
+
+/* comparison tab */
+.pcx-body { background: var(--pc-bg); }
+.pcx { max-width: none; padding: 0 20px 20px; }
+.pcx-head { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--pc-line); }
+.pcx-title { flex: 1; min-width: 0; }
+.pcx-title h1 { font-size: 18px; }
+.pcx-title .pc-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcx-score { width: 52px; height: 52px; font-size: 18px; border-width: 4px; }
+.pcx-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; align-items: start; }
+.pcx-side { position: sticky; top: 10px; display: grid; gap: 8px; max-height: calc(100vh - 20px); }
+.pcx-list { overflow: auto; max-height: calc(100vh - 80px); padding-right: 4px; }
+.pcx-visual .pcv-side figcaption { font-size: 12px; }
+
+@media (width <= 900px) {
+  .pcx-grid { grid-template-columns: 1fr; }
+  .pcx-side { position: static; max-height: none; }
+}
+.pcx-visual .pcv.side { grid-template-columns: auto auto; justify-content: center; gap: 28px; }
+.pcx-visual .pcv.stack { justify-items: center; }

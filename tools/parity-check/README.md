@@ -24,7 +24,8 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 - When you edit the page after a check, the panel says "The page changed since the last check" with a **Check again** button.
 
 ### 2. The original's breakpoints
-- **Auto** (default) tests the original's own breakpoints, read from its CSS, plus a phone width (390px) when the smallest breakpoint is above 480px. You can also add or remove widths as chips. Widths are remembered per site.
+- **Auto** (default) tests the original's own breakpoints, read from its CSS, plus a phone width (390px) when the smallest breakpoint is above 480px.
+- **Or choose them yourself**, up to 5 widths per check: turn **Auto** off, tap the quick picks (**Phone 390**, **Tablet 768**, **Small laptop 1024**, **Desktop 1280**, **Wide 1440**), or type any widths, several at once (`600, 1920`), and press **Add** or Enter. Remove a width with its ×. Widths are remembered per site, and every width is checked on both pages.
 - Tells you which of the original's breakpoints the migrated CSS doesn't have ("The migrated CSS has no media query at 1024px").
 
 ### 3. The parity checks (from the PR, unchanged)
@@ -39,10 +40,13 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 - Each issue shows the original and migrated values as a table (font, size, colour, padding…), with changed words highlighted.
 - Mark each issue **Approve** (`A`, an intended difference) or **Needs fix** (`F`); move between issues with `←` `→`. Approvals are kept per page.
 
-### 5. Hand-off
-- **Ask in Chat**: puts a ready prompt with the page's open issues (element, original and migrated values, widths) into the Workspace chat, for you to review and send. Approved issues are left out.
-- **Copy for AEM Coder**: the same prompt, on the clipboard.
-- **Download report**: a Markdown report with every issue per width and its status.
+### 5. Comparison in a new tab
+- **Open comparison in new tab** (bottom of the panel) shows the original and this page side by side at full size, with every issue pinned and listed next to them, a tab per width, severity filters and arrow-key navigation.
+- The panel sends the results to the tab directly (inside Experience Workspace the two can't share browser storage). In Workspace the tab shows the page as **last previewed**; edits that aren't previewed yet show in the panel only.
+
+### 6. PDF report
+- **Download PDF** (in the panel and in the comparison tab) saves a PDF file: a cover with the score, the widths and the original's breakpoints, then a section per width with every issue (title, details, original and migrated values, element, block, Approve / Needs fix status) and a crop of the original's screenshot showing where it is.
+- The PDF is made in the browser, from the check's results: no library and no service.
 
 ## How it works
 
@@ -96,6 +100,7 @@ Open the panel address with `?demo`. It compares two sample pages with deliberat
 ```
 tools/parity-check/
 ├── parity-check.html / .css / .js   # the panel
+├── compare.html / compare.js        # the full-size comparison tab
 ├── icon.svg
 ├── demo/                            # two sample pages with deliberate differences (from the PR)
 └── lib/
@@ -105,7 +110,8 @@ tools/parity-check/
     ├── frame.js       # renders this page in the panel and reads it
     ├── compare.js     # one check, every width (like the PR's run.js)
     ├── visual.js      # side-by-side view with pins
-    ├── report.js      # AEM Coder prompt and Markdown report
+    ├── pdf.js         # the PDF report (a small PDF writer + the layout)
+    ├── report.js      # issue keys and review statuses
     ├── settings.js    # original address, widths, ignore list, approvals
     └── store.js       # browser storage (captured originals in IndexedDB)
 worker/

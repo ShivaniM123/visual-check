@@ -33,7 +33,7 @@ export async function checkService(service) {
  * Resolves to { url, title, status, media, widths: [{ width, data, shot, shotScale, shotHeight }] }.
  */
 export async function captureOriginal(url, {
-  service, ref = 'main', widths = [], hideSelectors = [], height = 900, maxHeight = 8000, quality = 55,
+  service, ref = 'main', widths = [], hideSelectors = [], height = 900, maxHeight = 8000, quality = 60, scale = 0.75,
   log = () => {}, signal,
 } = {}) {
   if (!service) {
@@ -46,7 +46,7 @@ export async function captureOriginal(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        url, ref, widths, hideSelectors, height, maxHeight, quality,
+        url, ref, widths, hideSelectors, height, maxHeight, quality, scale,
       }),
       signal,
     });
