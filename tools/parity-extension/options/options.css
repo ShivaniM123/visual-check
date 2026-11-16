@@ -1,0 +1,19 @@
+body.options { padding-bottom: 20px; }
+.options main { max-width: 720px; margin: 0 auto; }
+.options h2 { font-size: 15px; margin: 18px 0 4px; }
+.options h2:first-child { margin-top: 0; }
+.options form { display: grid; gap: 8px; }
+
+.options input[type="password"],
+.options select,
+.options textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #b3b3b3;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.options textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.options .row { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.options .map-origin { width: 100%; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
