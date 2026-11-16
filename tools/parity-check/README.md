@@ -48,7 +48,7 @@ Parity Check answers it in the editor, for the page you're working on, at each o
 
 | Page | How it's read |
 |---|---|
-| **The original** | The panel asks the site's **capture Worker**, which takes a **Cloudflare Browser Run** snapshot of the original at each width, with this site's capture script added to the page (`lib/extract.js` + `lib/capture-fn.js`, read from the site, never from the request). In the page, the script reads every element with the parity core; Cloudflare returns that data and a full-page screenshot. About 7–10 s of browser time per width. |
+| **The original** | The panel asks the site's **capture Worker**, which opens the original in **Cloudflare Browser Run** (one browser session for every width) and adds this site's capture script to it (`lib/extract.js` + `lib/capture-fn.js`, read from the site, never from the request). The page's security policy is switched off for that tab, so strict sites such as Edge Delivery pages can be read. At each width the script reads every element with the parity core, and the Worker takes a screenshot. About 10–20 s of browser time for a capture of 2–3 widths. |
 | **This page** | Rendered inside the panel at each width, on the same site as the panel, and read with the same parity core. No third party, no limit. |
 
 Then `match.js` pairs the elements by content, `rules.js` turns differences into issues and a score, and `prompt.js` writes the hand-off. These files, `extract.js`, `words.js` and `breakpoints.js` are the PR's, unchanged.
@@ -86,8 +86,8 @@ Open the panel address with `?demo`. It compares two sample pages with deliberat
 ## Limits
 
 - **One page at a time.** The page you're editing, at every width you choose.
-- **Cloudflare's free plan** gives 10 minutes of browser time a day: about 20–30 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
-- **The original must be public**, because Cloudflare opens it from the internet. Pages that block added scripts with a strict security policy (CSP) can't be read; the panel says so.
+- **Cloudflare's free plan** gives 10 minutes of browser time a day: about 30–60 new captures of 2–3 widths. Re-checks of a captured original are free, and the panel says when the day's time is used up.
+- **The original must be public**, because Cloudflare opens it from the internet.
 - **No pixel diff of this page.** It's rendered live rather than screenshotted, so the visual part of the score is the layout similarity of the matched elements (position and width).
 - **A first pass, not a final verdict.** Carousels, tabs, accordions and personalised content can produce wrong issues. Approve intended differences and add noisy areas to **Ignore elements**.
 
@@ -100,8 +100,8 @@ tools/parity-check/
 ├── demo/                            # two sample pages with deliberate differences (from the PR)
 └── lib/
     ├── extract.js, match.js, rules.js, words.js, prompt.js, breakpoints.js   # parity core, unchanged from the PR
-    ├── cloud.js       # asks the capture Worker for a snapshot per width, reads the results
-    ├── capture-fn.js  # the capture script added to the original page in Cloudflare's browser
+    ├── cloud.js       # asks the capture Worker for the original, unpacks the results
+    ├── capture-fn.js  # the capture script run in the original page in Cloudflare's browser
     ├── frame.js       # renders this page in the panel and reads it
     ├── compare.js     # one check, every width (like the PR's run.js)
     ├── visual.js      # side-by-side view with pins
