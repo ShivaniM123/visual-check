@@ -12,6 +12,7 @@ import { captureOriginal, pickWidths } from './cloud.js';
 import { captureKey, getCapture, putCapture } from './store.js';
 import { diffScreenshots } from './diff.js';
 import { sectionsOf, sectionFor } from './sections.js';
+import { pairShortEdits, nameShortEdits } from './edits.js';
 
 const MAX_HEIGHT = 10000;
 // full-size screenshots, so the pixel diff compares the same pixels the PR does
@@ -197,6 +198,8 @@ export async function runCheck({
     const o = ow.data;
     const m = mw.data;
     const match = matchElements(o.elements, m.elements, { origHeight: o.height, migHeight: m.height });
+    // short texts edited in place (a number, a button label) are compared as one element
+    const edits = pairShortEdits(match);
     const oShot = shotOf(ow);
     const mShot = shotOf(mw);
     const diff = oShot && mShot
@@ -206,6 +209,7 @@ export async function runCheck({
     const analysis = analyzeWidth({
       width, orig: o, mig: m, match, diff,
     });
+    nameShortEdits(analysis.issues, edits);
     const sections = sectionsOf(m);
     analysis.issues.forEach((i) => { i.section = sectionFor(i, sections); });
     report.results.push({
